@@ -24,6 +24,7 @@ from .utils_idg import  PFNLayer, get_paddings_indicator
 from paddle3d.utils_idg.ops.scatter_point import DynamicScatter
 from paddle3d.models.layers import param_init, reset_parameters, constant_init
 from paddle3d.utils.checkpoint import load_pretrained_model_from_path
+import numpy as np
 
 @manager.VOXEL_ENCODERS.add_component
 class PillarFeatureNet(nn.Layer):
@@ -313,6 +314,7 @@ class DynamicPillarFeatureNet(PillarFeatureNet):
         features_ls = [features]
         if self._with_cluster_center:
             voxel_mean, mean_coors = self.cluster_scatter(features, coors)
+            # voxel_mean = paddle.to_tensor(np.load("/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/voxel_mean.npy"))
             points_mean = self.map_voxel_center_to_point(coors, voxel_mean,
                 mean_coors)
             f_cluster = features[:, :3] - points_mean[:, :3]

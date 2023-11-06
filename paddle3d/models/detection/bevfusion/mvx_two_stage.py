@@ -411,7 +411,7 @@ class MVXTwoStageDetector(nn.Layer):
 
             # =====================
             # 8A   
-            # roi_inputs = outs + (img_metas, self.coors)
+            # roi_inputs = outs + (img_metas, self.coors) # remove add once before
             if roi_regions is not None:
                 # print("===========test2.5=============")
                 self.expand_roi_regions_by_pred(img_metas, loss_inputs, roi_inputs, roi_preds, roi_regions)
@@ -458,27 +458,26 @@ class MVXTwoStageDetector(nn.Layer):
     def expand_roi_regions_by_pred(self, img_metas, loss_inputs, roi_inputs, roi_preds, roi_regions):
         featmap_sizes = np.array(self.pts_bbox_head.grid_size)[:2] // self.pts_bbox_head.downsample
         batch_anchors = self.pts_bbox_head.get_anchors(featmap_sizes, img_metas)
-        # print("cond: ", self.pts_bbox_head.cal_anchor_mask or self.pts_bbox_head.assign_cfg['use_anchor_mask'])
         if self.pts_bbox_head.cal_anchor_mask or self.pts_bbox_head.assign_cfg['use_anchor_mask']:
             anchors_mask = calculate_anchor_masks_torch(batch_anchors, self.coors, self.pts_bbox_head.grid_size,
                                                                    self.pts_bbox_head.voxel_size,
                                                                    self.pts_bbox_head.pc_range)
         else:
             anchors_mask = [None for _ in range(len(batch_anchors))]
-        # nms_rets = self.pts_roi_head.get_bboxes(roi_preds, *roi_inputs, batch_anchors, anchors_mask, self.test_cfg,
-        #                                         is_training=True)
-        # for batch_id in range(len(roi_preds)):    # TODO yipin change back
+        nms_rets = self.pts_roi_head.get_bboxes(roi_preds, *roi_inputs, batch_anchors, anchors_mask, self.test_cfg,
+                                                is_training=True)
+        for batch_id in range(len(roi_preds)):    # TODO yipin change back
 
-        #     label_preds = nms_rets[2][batch_id]
-        #     bigmot_cls_id = self.pts_roi_head.class2id['bigMot']
-        #     if label_preds.shape[0]>0:
-        #         selected_labels_inds = paddle.where(label_preds == bigmot_cls_id)[0].squeeze(1)
-        #         if selected_labels_inds.shape[0]>0:
-        #             selected_boxes = paddle.index_select(nms_rets[0][batch_id], selected_labels_inds, axis=0)
+            label_preds = nms_rets[2][batch_id]
+            bigmot_cls_id = self.pts_roi_head.class2id['bigMot']
+            if label_preds.shape[0]>0:
+                selected_labels_inds = paddle.where(label_preds == bigmot_cls_id)[0].squeeze(1)
+                if selected_labels_inds.shape[0]>0:
+                    selected_boxes = paddle.index_select(nms_rets[0][batch_id], selected_labels_inds, axis=0)
 
-        #             for region in roi_regions[batch_id]:
-        #                 if region['type'] == 3:
-        #                     region['region'] = paddle.concat([region['region'], selected_boxes], axis=0)
+                    for region in roi_regions[batch_id]:
+                        if region['type'] == 3:
+                            region['region'] = paddle.concat([region['region'], selected_boxes], axis=0)
 
 
     def forward_img_train(self,

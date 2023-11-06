@@ -14,6 +14,8 @@ hdmap_path=${data_root}/20220818_test_yizhuang_5k/hdmap
 
 export CUDA_VISIBLE_DEVICES=4
 
+
+## step1 ##
 ### eval ###
 python tools/evaluate.py \
     --config configs/bevfusion_idg/fusion/8A/bevfusion_baseline.yaml \
@@ -21,10 +23,12 @@ python tools/evaluate.py \
     --num_workers 8
 
 
+## step2 ##
 # python ./tools/trans2dupc_parallel.py \
 #         --result_path test_results_1016_convert.pkl \
 #         --save_path output/save_dupc_results_1016
 
 
+## step3 in guojun docker ##
 # bash ./tools/benchmark.sh $work_dir $gt_label $gt_pcd $work_dir/save_dupc_results  $hdmap_path $conf
 

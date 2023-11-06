@@ -173,24 +173,25 @@ class SpatialCrossAttention(nn.Layer):
             reference_points_rebatch = paddle.zeros(
                 [bs, self.num_cams, max_len, D, 2],
                 dtype=reference_points_cam.dtype)
-
+            print("=====test0====")
             for j in range(bs):
                 for i, reference_points_per_img in enumerate(reference_points_cam):
                     # index_query_per_img = indexes[i]
                     index_query_per_img = indexes[j][i]
                     #queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
-                    # print("len(index_query_per_img)", len(index_query_per_img))
+                    print("=====test1====")
                     queries_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(query[j], index_query_per_img)
+                    print("=====test2====")
                     #reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
                     reference_points_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(reference_points_per_img[j], index_query_per_img)
-
+                    print("=====test3====")
             num_cams, l, bs, embed_dims = key.shape
 
             key = key.transpose([2, 0, 1, 3]).reshape(
                 [bs * self.num_cams, l, self.embed_dims])
             value = value.transpose([2, 0, 1, 3]).reshape(
                 [bs * self.num_cams, l, self.embed_dims])
-
+            print("=====test4====")
             queries = self.deformable_attention(
                 query=queries_rebatch.reshape(
                     [bs * self.num_cams, max_len, self.embed_dims]),
@@ -211,7 +212,7 @@ class SpatialCrossAttention(nn.Layer):
                     slots = paddle.scatter_nd_add(
                         slots, scatter_index,
                         queries[j, i, :len(index_query_per_img)])
-            
+            print("=====test5====")    
             count = bev_mask.sum(-1) > 0    # changed out of if
             count = count.transpose([1, 2, 0]).sum(-1)
             count = paddle.clip(count, min=1.0)

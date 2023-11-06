@@ -29,16 +29,17 @@ def inproj2qkv(torch_param_grads):
     return new_torch_param_grads
 
 
-torch_grad_path = '/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/pth_grad.pkl'
+torch_grad_path = '/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/pth_grad_1030.pkl'
 
-pd_grad_path = 'pd_grad.pkl'
+pd_grad_path = 'pd_grad_1030.pkl'
 
 with open(torch_grad_path, 'rb') as f:
     torch_grad = pickle.load(f)
 
 with open(pd_grad_path, 'rb') as f:
     pd_grad = pickle.load(f)
-
+# print(pd_grad['grad_info'])
+# exit()
 torch_param_grads = torch_grad['grad_info']
 pd_param_grads = pd_grad['grad_info']
 torch_buffers = torch_grad['buffer_info']

@@ -135,7 +135,8 @@ class DataBaseSampler(object):
 
         self.sampler_dict = {}
         for k, v in self.group_db_infos.items():
-            self.sampler_dict[k] = BatchSampler(v, k, shuffle=True) #TODO yipin #shuffle=True)
+            # self.sampler_dict[k] = BatchSampler(v, k, shuffle=True)
+            self.sampler_dict[k] = BatchSampler(v, k, shuffle=False) #TODO yipin #shuffle=True)
         # TODO: No group_sampling currently
         print("dbsample.py, self.sample_classes: ", self.sample_classes)
         print("dbsample.py, self.cat2label: ", self.cat2label)

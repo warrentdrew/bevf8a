@@ -2398,12 +2398,12 @@ class CustomRandomFlip3D(TransformABC):
                 into result dict.
         """
         if 'pcd_horizontal_flip' not in input_dict:
-            # np.random.seed(0)
+            np.random.seed(0)
             flip_horizontal = True if np.random.rand(
             ) < self.flip_ratio_bev_horizontal else False
             input_dict['pcd_horizontal_flip'] = flip_horizontal
         if 'pcd_vertical_flip' not in input_dict:
-            # np.random.seed(0)
+            np.random.seed(0)
             flip_vertical = True if np.random.rand(
             ) < self.flip_ratio_bev_vertical else False
             input_dict['pcd_vertical_flip'] = flip_vertical

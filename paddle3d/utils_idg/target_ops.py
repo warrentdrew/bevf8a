@@ -509,7 +509,14 @@ def create_target_paddle(all_anchors,
     else:
         bg_inds = paddle.arange(num_inside)
 
-    fg_inds = paddle.nonzero(labels > 0)[:, 0]
+    # =======================
+    # fg_inds = paddle.nonzero(labels > 0)[:, 0]
+    if labels.shape[0] > 0:
+        fg_inds = paddle.nonzero(labels > 0)[:, 0]
+    else:
+        fg_inds = paddle.to_tensor([], dtype = 'int64')
+
+    # =======================
     fg_max_overlap = None
     if len(gt_boxes) > 0:
         # TODO(luoqianhui): paddle.index_select cannot support zero-shape input

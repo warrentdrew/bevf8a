@@ -28,7 +28,7 @@ train_dataset:
   pipeline:
     - type: LoadMultiViewImageFromZipFiles
       to_float32: true
-    - type: LoadPointsFromZipFile
+    - type: LoadPointsFromZipFile # TODO random
       coord_type: 'LIDAR'
       load_dim: 4
       use_dim: 4
@@ -66,11 +66,11 @@ train_dataset:
       point_cloud_range: [-120, -120, -5, 120, 120, 5]
     - type: SampleNameFilter  # instead of object name filter
       classes: *class_names_with_bg
-    - type: PointShuffle  # todo remove for match
-    - type: RandomScaleImageMultiViewImage # todo remove for match
+    # - type: PointShuffle  # todo remove for match
+    - type: RandomScaleImageMultiViewImage
       scales: [0.4]
       fix_size: True
-    - type: CustomRandomFlip3D 
+    - type: CustomRandomFlip3D   # todo remove for match
       sync_2d: False
       flip_ratio_bev_horizontal: 0.5
       flip_ratio_bev_vertical: 0.5
@@ -303,7 +303,7 @@ model:
             }
           ]
           feedforward_channels: 128
-          ffn_dropout: 0.1 # TODO
+          ffn_dropout: 0.0 #0.1 # TODO zhuyipin
           operation_order: ['cross_attn', 'norm', 'ffn', 'norm']      
   pts_voxel_layer:
     max_num_points: -1
@@ -704,7 +704,7 @@ optimizer:
 
 lr_scheduler:
   type: OneCycle
-  total_step: 14718 #29442 # 22500 #iters * epochs
+  total_step: 117726 #29442 # 22500 #iters * epochs
   lr_max: 0.00025 #0.000125 #bs8
   moms: [0.95, 0.85]
   div_factor: 10

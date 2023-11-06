@@ -22,12 +22,12 @@ hdmap_path=${data_root}/${test_set}/hdmap
 
 
 
-python ./tools/trans2dupc_parallel.py \
-        --result_path=test_results_exp5_dev_1031_convert.pkl \
-        --save_path=output/save_dupc_results_bigmot_1031_dev \
-        --trans_headstock \
-        --headstock_delta 0 7
+#python ./tools/trans2dupc_parallel.py \
+#       --result_path=jll_res/test_results_exp5_dev_1031_convert.pkl \
+#       --save_path=output/jll_res/save_dupc_results_bigmot_exp5_1031 \
+#       --trans_headstock \
+#       --headstock_delta 0 7
 
-# bash ./tools/benchmark.sh $work_dir $gt_label $gt_pcd $work_dir/save_dupc_results_bigmot_1031_dev  $hdmap_path $conf
+bash ./tools/benchmark.sh $work_dir $gt_label $gt_pcd $work_dir/jll_res/save_dupc_results_bigmot_exp5_1031  $hdmap_path $conf
 
 

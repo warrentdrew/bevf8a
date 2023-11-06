@@ -62,12 +62,12 @@ def training_step(model: paddle.nn.Layer,
     # if isinstance(model, paddle.DataParallel):
     #     model._layers.train()
 
-    # add for match result
-    # for m in model.sublayers():
-    #     if isinstance(m, nn.Dropout):
-    #         m.p = 0.0
-    #     if isinstance(m, nn.BatchNorm2D) or isinstance(m, nn.BatchNorm1D): # option
-    #         m.eval()
+    # add for match result # TODO
+    for m in model.sublayers():
+        if isinstance(m, nn.Dropout):
+            m.p = 0.0
+        # if isinstance(m, nn.BatchNorm2D) or isinstance(m, nn.BatchNorm1D): # option
+        #     m.eval()
 
 
     if isinstance(model, paddle.DataParallel) and hasattr(model._layers, 'use_recompute') \
@@ -98,35 +98,39 @@ def training_step(model: paddle.nn.Layer,
         else:
             outputs = model(sample)
             loss, log_loss = parse_losses(outputs['loss'])
-            # print("=========before backward=============")
+            print("=========before backward=============")
             loss.backward()
-            # count = 0
-            # for param in model.parameters():
-            #     if param.grad is not None:
-            #         count += 1
 
-            # print("param grad count: ", count)
-
-            # print("=========after backward=============")
+            # cnt = 0
+            # for param_name, param in model.named_parameters():
+            #     if param_name.endswith("_variance") or param_name.endswith('_mean'):
+            #         pass
+            #     elif param.grad is None:
+            #         continue
+            #     else:
+            #         #param.grad is not None:
+            #         cnt += 1
+            # print("param with grad count: ", cnt)
+            print("=========after backward=============")
 
     # update params
     if optimizer.__class__.__name__ == 'OneCycleAdam':
         optimizer.after_iter()
     else:
-        # print("=========before optim=============")
+        print("=========before optim=============")
         if scaler is not None:
             scaler.step(optimizer)
             scaler.update()
         else:
             optimizer.step()
-        # print("=========after optim=============")
+        print("=========after optim=============")
 
         optimizer.clear_grad()
-        # print("=========before lr=============")
+        print("=========before lr=============")
         if isinstance(optimizer._learning_rate,
                       paddle.optimizer.lr.LRScheduler):
             optimizer._learning_rate.step()
-        # print("=========after lr=============")
+        print("=========after lr=============")
 
 
     # reduce loss when distributed training

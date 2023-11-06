@@ -1,7 +1,7 @@
 import paddle
 import torch
 paddle_weight = paddle.load('init.pdparams')
-torch_weight = torch.load('weights/torch_init.pth')#['state_dict']
+torch_weight = torch.load('weights/torch_init_1030.pth')#['state_dict']
 
 # 过滤num_batches_tracked参数
 torch_weight_n = {}
@@ -29,5 +29,5 @@ for torch_key, paddle_key in zip(torch_weight_n.keys(), paddle_weight.keys()):
     else:
         new_weight_dict[paddle_key] = torch_weight_n[torch_key].detach().cpu().numpy().astype(paddle_weight[paddle_key].numpy().dtype)
 # 保存paddle参数
-paddle.save(new_weight_dict, 'weights/torch_init_remapped_wns.pdparams')
+paddle.save(new_weight_dict, 'weights/torch_init_1030_remapped_wns.pdparams')
 print('end save')

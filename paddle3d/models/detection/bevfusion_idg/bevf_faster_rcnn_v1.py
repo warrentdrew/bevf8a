@@ -218,7 +218,8 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
             bev_features = paddle.concat(tmp_bev_features, axis=0)
         else:
             bev_features = None
-            
+
+        # bev_features = paddle.to_tensor(np.load("/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/bev_features.npy")) 
         return points, coors_batch, bev_features
 
     def extract_img_feat(self, img, img_metas):
@@ -357,6 +358,7 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
         pts_feats = feature_dict['pts_feats']
         depth_dist = feature_dict['depth_dist']
 
+
         bbox_list = [dict() for i in range(len(img_metas))]
         if pts_feats and self.with_pts_bbox:
             bbox_pts = self.simple_test_pts(
@@ -465,6 +467,9 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
         pts_feats = feature_dict['pts_feats']
         depth_dist = feature_dict['depth_dist']
 
+        
+        # img_feats = (paddle.to_tensor(np.load('/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/img_feats[0].npy')),)
+        # pts_feats = [paddle.to_tensor(np.load('/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/pts_feats2.npy'))]
         losses = dict()
 
         # img_feats = paddle.load("img_feats.pdt")

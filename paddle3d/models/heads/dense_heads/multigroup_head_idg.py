@@ -871,8 +871,7 @@ class MultiGroupHead(nn.Layer):
                     bg_boxes_ = bg_bboxes[batch_id]
                     bg_classes_ = bg_labels[batch_id]
                     valid = bg_classes_ > 0
-                    if bg_boxes_.shape[0] > 0:
-                        bg_boxes_ = bg_boxes_[valid]
+                    bg_boxes_ = bg_boxes_[valid]
                     if len(bg_boxes_) and len(gt_boxes_):
                         bg_box_iou = bbox_overlaps_nearest_3d(box_preds_decode, bg_boxes_ , 'iof')
                         bg_box_iou[bg_box_iou.isnan()] = 0 
@@ -1399,13 +1398,13 @@ class MultiGroupHead(nn.Layer):
                         'box3d_lidar': box_preds[mask],
                         'scores': top_scores[mask], 
                         'label_preds': top_labels[mask],
-                        "iou_scores": iou_scores[mask] if iou_preds is not None else None}
+                        "iou_scores": iou_scores[mask] if iou_preds is not None else None} # 8a
                 else:
                     predictions_dict = {
                         'box3d_lidar': box_preds, 
                         'scores': top_scores, 
                         'label_preds': top_labels,
-                        "iou_scores": iou_scores if iou_preds is not None else None}
+                        "iou_scores": iou_scores if iou_preds is not None else None} # 8a
             else:
                 dtype = batch_reg_preds.dtype
                 # box_ndim = (self.box_n_dim + 2 if self.bev_only else self.box_n_dim)

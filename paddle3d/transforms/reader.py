@@ -361,10 +361,12 @@ class LoadPointsFromZipFile(TransformABC):
     
     def _random_sample_points(self, points, drop_ratio=1.0):
         if drop_ratio < 0.9999:
+            random.seed(0) # TODO zhuyipin remove in training 
             sample_pointnum_ratio = random.random() * (1 - drop_ratio) + drop_ratio
             points_num_src = points.shape[0]
             points_num_tgt = min(int((points_num_src + 1 / sample_pointnum_ratio - 1) * sample_pointnum_ratio),
                                 points_num_src)
+            random.seed(0) # TODO zhuyipin remove in training 
             sample_indexes = random.sample(range(points_num_src), points_num_tgt)
             points = points[sample_indexes, ...]
         return points
@@ -383,7 +385,7 @@ class LoadPointsFromZipFile(TransformABC):
         sweeps = results['sweeps']
 
         if len(sweeps) > 0:
-            if self.test_mode: #TODO change to test mode
+            if True: #self.test_mode: #TODO zhuyipin change to test mode
                 choices = []
                 choices_list = list(range(len(sweeps)))
                 if self.nsweeps > 1:
@@ -394,7 +396,7 @@ class LoadPointsFromZipFile(TransformABC):
             else: # train
                 # assert (self.nsweeps - 1) <= len(sweeps
                 #     ), "nsweeps {} should not greater than list length {}.".format(self.nsweeps, len(sweeps))
-                # np.random.seed(0)
+                np.random.seed(0) # TODO zhuyipin
                 choices = np.random.choice(min(len(sweeps), (self.nsweeps - 1) * 2), self.nsweeps - 1, replace=False)
             for idx in choices:
                 sweep = results['sweeps'][idx]

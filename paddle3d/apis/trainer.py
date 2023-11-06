@@ -43,7 +43,7 @@ def default_dataloader_build_fn(**kwargs) -> paddle.io.DataLoader:
     def _generate_loader(dataset: paddle.io.Dataset, model: paddle.nn.Layer):
         args = kwargs.copy()
         batch_size = args.pop('batch_size', 1)
-        shuffle = False if not dataset.is_train_mode else True
+        shuffle = False # if not dataset.is_train_mode else True
         # print("@shuffle: ", shuffle)
         drop_last = args.pop('drop_last',
                              False if not dataset.is_train_mode else True)
@@ -288,14 +288,17 @@ class Trainer:
             if not paddle.distributed.parallel.parallel_helper._is_parallel_ctx_initialized(
             ):
                 group = paddle.distributed.init_parallel_env()
-            model = paddle.DataParallel(self.model, find_unused_parameters=True)
+            # model = paddle.DataParallel(self.model, find_unused_parameters=False)
+            model = paddle.DataParallel(self.model, find_unused_parameters=False)
 
         losses_sum = defaultdict(float)
         timer = Timer(iters=self.iters - self.cur_iter)
 
         while self.cur_iter < self.iters:
 
-            for sample in self.train_dataloader:
+            for i, sample in enumerate(self.train_dataloader):
+                if i == 0:    #TODO
+                    continue
                 if self.cur_iter == 1 and self.do_bind and int(
                         os.environ.get('FLAGS_selected_gpus', 0)) == 0:
                     test_cmd = "j=0 | j=$(( $j + 1 ))"
@@ -326,8 +329,7 @@ class Trainer:
                 #         params_dict=self.model.state_dict(),
                 #         opt_dict=self.optimizer.state_dict(),
                 #         verbose=True)
-                paddle.save(sample, f"error1106_{env.local_rank}.pdt")
-                paddle.save(self.model.state_dict(), f"error1106_{env.local_rank}/model.pdparams")
+                # paddle.save(sample, f"hangerror2_{env.local_rank}.pdt")
                 # paddle.save(sample, "sample_adapt2dev.pdt")
                 # paddle.save(sample, "sample_tomatch.pdt")
                 # sample = paddle.load("sample_tomatch.pdt")
@@ -487,6 +489,6 @@ class Trainer:
             #pickle.dump(results, f)
             #paddle.save()
         
-        paddle.save(results, "test_results_exp5_dev_1031.pdt")
+        paddle.save(results, "test_results_exp4_1030.pdt")
         metrics = self.val_dataset.evaluate(results, metric='bbox', jsonfile_prefix='eval_output')
         return metrics
