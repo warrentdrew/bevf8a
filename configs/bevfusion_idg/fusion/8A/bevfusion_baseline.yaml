@@ -1,0 +1,732 @@
+# define: &freeze_lidar False
+define: &class_names_with_bg ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 
+                              'pedestrian_sub', 'accessory_main', 'OnlyBicycle', 'fog', 'spike']
+define: &class_names ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', "pedestrian_sub",'accessory_main']
+batch_size: 1 # 8 gpu, total bs: 8
+epochs: 6
+
+train_dataset:
+  type: AT128Dataset
+  data_root: ./data
+  with_velocity: False
+  use_bbox_used_in_mainline: False
+  num_views: 6
+  # ann_file: ./data/hesai90/hesai90_train_123905.pkl
+  # ann_file: ./data/hesai90/hesai90_train_3w_dynamic.pkl #TODO 1023
+  # ann_file: ./data/hesai90/hesai90_train_20k_noweakly.pkl # TODO chage to clean for training
+  ann_file: ./data/hesai90/hesai90_train_20k_noweakly_clean.pkl
+  load_interval: 1
+  classes: *class_names_with_bg
+  modality:
+    use_lidar: True
+    use_camera: True
+    use_radar: False
+    use_map: False
+    use_external: False
+  test_mode: False
+  box_type_3d: 'LiDAR'
+  pipeline:
+    - type: LoadMultiViewImageFromZipFiles
+      to_float32: true
+    - type: LoadPointsFromZipFile
+      coord_type: 'LIDAR'
+      load_dim: 4
+      use_dim: 4
+    - type: LoadAnnotations3D
+      with_bbox_3d: true
+      with_label_3d: true
+      with_name_3d: true
+      with_weakly_roi: true
+      classes: *class_names_with_bg
+    - type: ObjectSample 
+      db_sampler:
+        type: DataBaseSampler # TODO set shuffle to false for match
+        data_root: ./data/hesai90/bg_infos/
+        info_path: ./data/hesai90/bg_infos/90p_bg_infos_5a_33scenes_bg_types.pkl
+        rate: [1.0, 1.0, 1.0, 0.3, 0.3]
+        prepare:
+          filter_by_min_points:
+            OnlyBicycle: 5
+            fog: 8
+            spike: 5
+        classes: *class_names_with_bg
+        sample_groups: 
+          OnlyBicycle: 4
+          fog: 5
+          spike: 3
+        points_loader:
+          type: LoadPointsFromFile
+          # coord_type: LIDAR # add 
+          load_dim: 4
+          use_dim: 4
+
+    - type: PointsRangeFilter
+      point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    - type: SampleRangeFilter # instead of object range filter 
+      point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    - type: SampleNameFilter  # instead of object name filter
+      classes: *class_names_with_bg
+    - type: PointShuffle  # todo remove for match
+    - type: RandomScaleImageMultiViewImage # todo remove for match
+      scales: [0.4]
+      fix_size: True
+    - type: CustomRandomFlip3D 
+      sync_2d: False
+      flip_ratio_bev_horizontal: 0.5
+      flip_ratio_bev_vertical: 0.5
+    - type: MyNormalize
+      mean: [123.675, 116.28, 103.53]
+      std: [58.395, 57.12, 57.375]
+      to_rgb: true
+    - type: CalculateGTBoxVisibleBorders 
+    - type: DefaultFormatBundle3D
+      class_names: *class_names_with_bg
+    - type: SampleFilterByKey
+      keys: ['points', 'img', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_border_masks', 'roi_regions']
+
+  eval_configs: 
+    class_range:
+      TrainedOthers: 150
+      pedestrian: 150
+      bigMot: 150
+      smallMot: 150
+      nonMot: 150
+    distances: [[0, 60], [60, 120]]
+    rel_dist_fcn: 'relative_center_distance' #一般不需要修改
+    rel_dist_th_tp: 0.1 #相对距离阈值，用于camera评测
+    ab_dist_th_tp: 1.5 #绝对距离阈值，用于camera评测
+    iou_th_hard_tp: 0.5 #IoU阈值，严格标准
+    iou_th_easy_tp: 0.2 #IoU阈值，宽松标准
+    rel_ab_th: 60 # rel_ab_th 以内使用绝对距离阈值，el_ab_th 以外使用绝对距离阈值，用于camera评测
+    iou_type: 'geo_iou' # pts_iou or geo_iou. pts_iou: 基于点云计算IoU，geo_iou：基于坐标计算IoU. pts_iou非常耗时，仅支持离线测试
+    iou_matrix_path: 'piou_matrix.pkl' # 离线计算pts_iou的结果，只在 iou_type = 'pts_iou' 时才会生效
+    geo_iou_type: 'bev_iou' # bev_iou or 3d_iou, 仅当iou_type = 'geo_iou'时才会生效
+    min_recall: 0.0  #一般不需要修改       
+    min_precision: 0.0 #一般不需要修改
+    max_boxes_per_sample: 1000 # 500, 一般不需要修改
+    ignore_gt_valid: True #是否忽略gt_valid_flag, lidar和fusion评测，ignore_gt_valid = True，camera评测， ignore_gt_valid = False
+    score_thr: 0.1 #仅评测大于score_thr的预测结果
+    fuse_mot: False #是否将bigMot和smallMot合为一类评测，一般不需要修改
+    cross_cls_match: False # 是否夸类别评测，等价于bmAP，一般不需要修改
+    score_first: False # score_first = True，score优先匹配，否则IoU优先匹配
+    dist_type: 'iou_dist' # pts_dist or geo_dist. pts_dist:基于点云计算距离，geo_dist: 基于坐标计算距离。pts_dist非常耗时，仅支持离线测试
+    pts_dist_path: 'dist_infos.pkl' # 离线计算pts_dist的结果，只在 dist_type = 'pts_dist' 时才会生效
+    render_curves: False #是否画PR曲线
+    metric: ['lidar'] # ['lidar', 'camera'], lidar: lidar和fusion评测, camera: camera评测
+  
+val_dataset:
+  type: AT128Dataset
+  data_root: ./data
+  with_velocity: False
+  use_bbox_used_in_mainline: False
+  num_views: 6
+  ann_file: ./data/hesai90/hesai90_test_bigMot_5633.pkl
+  load_interval: 1
+  classes: *class_names
+  modality: 
+    use_lidar: True
+    use_camera: True
+    use_radar: False
+    use_map: False
+    use_external: False
+  test_mode: True
+  box_type_3d: 'LiDAR'
+  pipeline:
+    - type: LoadPointsFromZipFile
+      coord_type: 'LIDAR'
+      load_dim: 4
+      use_dim: 4
+    - type: LoadMultiViewImageFromZipFiles
+      to_float32: true
+    - type: MultiScaleFlipAug3D
+      img_scale: (720, 465) #not list
+      pts_scale_ratio: 1
+      flip: False
+      transforms:
+        - type: RandomScaleImageMultiViewImage
+          scales: [0.4]
+          fix_size: True
+        - type: MyNormalize
+          mean: [123.675, 116.28, 103.53]
+          std: [58.395, 57.12, 57.375]
+          to_rgb: true
+        - type: DefaultFormatBundle3D
+          class_names: *class_names
+          with_label: False
+        - type: SampleFilterByKey
+          keys: ['points', 'img']
+  
+  eval_configs: 
+    class_range:
+      TrainedOthers: 150
+      pedestrian: 150
+      bigMot: 150
+      smallMot: 150
+      nonMot: 150
+    distances: [[0, 60], [60, 120]]
+    rel_dist_fcn: 'relative_center_distance' #一般不需要修改
+    rel_dist_th_tp: 0.1 #相对距离阈值，用于camera评测
+    ab_dist_th_tp: 1.5 #绝对距离阈值，用于camera评测
+    iou_th_hard_tp: 0.5 #IoU阈值，严格标准
+    iou_th_easy_tp: 0.2 #IoU阈值，宽松标准
+    rel_ab_th: 60 # rel_ab_th 以内使用绝对距离阈值，el_ab_th 以外使用绝对距离阈值，用于camera评测
+    iou_type: 'geo_iou' # pts_iou or geo_iou. pts_iou: 基于点云计算IoU，geo_iou：基于坐标计算IoU. pts_iou非常耗时，仅支持离线测试
+    iou_matrix_path: 'piou_matrix.pkl' # 离线计算pts_iou的结果，只在 iou_type = 'pts_iou' 时才会生效
+    geo_iou_type: 'bev_iou' # bev_iou or 3d_iou, 仅当iou_type = 'geo_iou'时才会生效
+    min_recall: 0.0  #一般不需要修改       
+    min_precision: 0.0 #一般不需要修改
+    max_boxes_per_sample: 1000 # 500, 一般不需要修改
+    ignore_gt_valid: True #是否忽略gt_valid_flag, lidar和fusion评测，ignore_gt_valid = True，camera评测， ignore_gt_valid = False
+    score_thr: 0.1 #仅评测大于score_thr的预测结果
+    fuse_mot: False #是否将bigMot和smallMot合为一类评测，一般不需要修改
+    cross_cls_match: False # 是否夸类别评测，等价于bmAP，一般不需要修改
+    score_first: False # score_first = True，score优先匹配，否则IoU优先匹配
+    dist_type: 'iou_dist' # pts_dist or geo_dist. pts_dist:基于点云计算距离，geo_dist: 基于坐标计算距离。pts_dist非常耗时，仅支持离线测试
+    pts_dist_path: 'dist_infos.pkl' # 离线计算pts_dist的结果，只在 dist_type = 'pts_dist' 时才会生效
+    render_curves: False #是否画PR曲线
+    metric: ['lidar'] # ['lidar', 'camera'], lidar: lidar和fusion评测, camera: camera评测
+ 
+model:
+  type: BEVFFasterRCNNV1
+  sync_bn: True # TODO yipin use syncbn
+  load_cam_from: pretrained/backbone_neck_0223_from_xiaopeng_key_updated.pdparams #./pretrained/new/cam.pdparams
+  load_lidar_from: pretrained/epoch_40_lidar_mothead.pdparams
+  se: True
+  lc_fusion: True
+  camera_stream: True
+  use_cam2bev_transformer: False
+  grid: 0.6
+  num_views: 6
+  final_dim: [1860, 2880]
+  downsample: 16
+  imc: 64
+  lic: 121
+  dla_add_extra_conv: False 
+  dla_input_dim: 128 
+  need_convert_gt_format: True #it is important, and cannot be removed! 
+  use_bbox_used_in_mainline: False
+  # norm_decay: 0.01
+  tasks: 
+    - num_class: 1
+      class_names: ['TrainedOthers']
+    - num_class: 1
+      class_names: ["smallMot"]
+    - num_class: 1
+      class_names: ["bigMot"]
+    - num_class: 1
+      class_names: ["nonMot"]
+    - num_class: 1
+      class_names: ["pedestrian"]
+    - num_class: 1
+      class_names: ["verybigMot"]
+    - num_class: 1
+      class_names: ["pedestrian_sub"]
+    - num_class: 1
+      class_names: ["accessory_main"]
+    - num_class: 1
+      class_names: ["OnlyBicycle", "fog", "spike"]
+  test_cfg: 
+    nms:
+      use_rotate_nms: False
+      use_rotate_nms_overlap: True
+      use_multi_class_nms: False
+      nms_groups: [['TrainedOthers', 'pedestrian', 'smallMot', 'bigMot', 'nonMot'], ['TrainedOthers']]
+      group_nms_iou_threshold: [0.1, 0.05]
+      add_iou_edge: 0.0
+      nms_overlap_groups: [['TrainedOthers', 'pedestrian', 'nonMot'], ['smallMot', 'bigMot']]
+      group_nms_overlap_iou_threshold: [0.6, 0.6]
+      nms_pre_max_size: 2500
+      nms_post_max_size: 500 #80,
+      nms_iou_threshold: 0.5 #0.2,
+    use_benchmar_format: False
+    score_threshold: 0.1 #0.09 #0.1,
+    post_center_limit_range: [-130, -130, -5, 130, 130, 5]
+    max_per_img: 1000
+  img_backbone:
+    type: CSPResNetFPN 
+    act: swish
+    return_idx: [1, 2, 3]
+    width_mult: 0.50
+    depth_mult: 0.33
+    use_large_stem: True
+    use_alpha: True
+    out_channels: [512, 256, 128 ]
+    stage_num: 1
+    block_num: 3
+    spp: True
+  cam2bev_modules:
+    type: UniformBevGridTransformer
+    lss: False
+    use_conv_bevencoder: False
+    point_cloud_range: [-120.0, -120.0, -5.0, 120.0, 120.0, 3.0]
+    bev_h: 144
+    bev_w: 144
+    # norm_decay: 0.01
+    positional_encoding:
+      type: 'SinePositionalEncoding'
+      num_feats: 32
+      normalize: True
+    transformer:
+      type: 'PerceptionTransformer'
+      num_feature_levels: 1
+      num_cams: 6
+      embed_dims: 64
+      rotate_prev_bev: False
+      use_shift: True
+      use_can_bus: False
+      can_bus_norm: False
+      use_cams_embeds: True
+      rotate_center: [100, 100]
+      use_decoder: False
+      # norm_decay: 0.01
+      encoder:
+        type: 'BEVFormerEncoder'
+        num_layers: 1
+        point_cloud_range: [-120.0, -120.0, -5.0, 120.0, 120.0, 3.0]
+        num_points_in_pillar: 4
+        return_intermediate: False
+        transformerlayers:
+          type_name: 'BEVFormerLayer'
+          # norm_decay: 0.01
+          attn_cfgs:  [
+            {
+              type_name: 'SpatialCrossAttention',
+              point_cloud_range: [-120.0, -120.0, -5.0, 120.0, 120.0, 3.0],
+              deformable_attention: {
+                type_name: 'MSDeformableAttention3D',
+                embed_dims: 64,
+                num_points: 8,
+                num_heads: 2, 
+                num_levels: 1
+              },
+              embed_dims: 64
+            }
+          ]
+          feedforward_channels: 128
+          ffn_dropout: 0.1 # TODO
+          operation_order: ['cross_attn', 'norm', 'ffn', 'norm']      
+  pts_voxel_layer:
+    max_num_points: -1
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10.0]
+    max_voxels: [-1, -1]
+  bev_feature_layer:
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10.0]
+    cnnseg_feature_dim: 6
+    compute_logodds_cfg:
+      vis_range: [-120, -120, -3, 120, 120, 2]
+      vis_voxel_size: [0.2083, 0.2083, 1.25]
+      compute_logodds: True
+  pts_voxel_encoder:
+    type: DynamicPillarFeatureNet
+    in_channels: 4
+    feat_channels: [64,]
+    with_distance: False
+    with_cluster_center: True
+    with_voxel_center: True
+    voxel_size: [0.2083, 0.2083, 10.0]
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    norm_cfg: 
+      type_name: BN1d
+      epsilon: 0.001 # change to epsilon from eps for paddle
+      momentum: 0.99 #0.01 #0.01 diff for paddle, fixed in paddle dev recently
+      requires_grad: True
+    mode: max
+    legacy: False
+    input_norm: True
+  pts_middle_encoder:
+    type: PointPillarsScatterExpandVisV2
+    num_input_features: 64
+    input_expand_filters: 10
+    expand_filters: 64
+    norm_cfg: 
+      type_name: BN # change to type_name from type
+      epsilon: 0.001 # change to epsilon from eps for paddle
+      momentum: 0.99 #0.01
+      requires_grad: True
+    remove_intensity: False
+  pts_neck:
+    type: HighResolutionNet
+    ds_layer_strides: [2, 2, 2, 2]
+    us_layer_strides: [1, 2, 4, 8]
+    num_input_features: 64
+    num_inner_features: 64
+    num_output_features: 121 #int(sum([18, 32, 64, 128]) / 2),
+    pretrained: null
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.001 # change to epsilon from eps for paddle
+      momentum: 0.99 #0.01
+      requires_grad: True
+    extra:
+      stage1:
+        num_modules: 1
+        num_branches: 1
+        block: BOTTLENECK
+        num_blocks: [2,]
+        num_channels: [64,]
+        fuse_method: SUM
+      stage2:
+        num_modules: 1
+        num_branches: 2
+        block: BASIC
+        num_blocks: [2, 2]
+        num_channels: [18, 32]
+        fuse_method: SUM
+      stage3:
+        num_modules: 1
+        num_branches: 3
+        block: BASIC
+        num_blocks: [2, 2, 2]
+        num_channels: [18, 32, 64]
+        fuse_method: SUM
+      stage4:
+        num_modules: 1
+        num_branches: 4
+        block: BASIC
+        num_blocks: [2, 2, 2, 2]
+        num_channels: [18, 32, 64, 128]
+        fuse_method: SUM
+  pts_bbox_head:
+    type: MultiGroupHead
+    mode: 3d
+    in_channels: 121 
+    ds_head_filters: [128, 64, 64]
+    ds_head_strides: [2, 0.5, 1]
+    verybigMot_index: [0, 0, 1]
+    head_layer_index: [0, 1, 3, 0, 0, 3, 2, 3] #[0, 1, 3, 0, 0, 3, 2]
+    num_anchor_per_locs: [1, 4, 4, 2, 1, 4, 1, 4]
+    use_bigMot_subhead: True
+    voxel_size: [0.2083, 0.2083, 10]
+    downsample: 2
+    grid_size: [1152, 1152, 1]
+    pc_range: [-120, -120, -5, 120, 120, 5]
+    assign_cfg: 
+      tasks:
+        - num_class: 1
+          class_names: ['TrainedOthers']
+        - num_class: 1
+          class_names: ["smallMot"]
+        - num_class: 1
+          class_names: ["bigMot"]
+        - num_class: 1
+          class_names: ["nonMot"]
+        - num_class: 1
+          class_names: ["pedestrian"]
+        - num_class: 1
+          class_names: ["verybigMot"]
+        - num_class: 1
+          class_names: ["pedestrian_sub"]
+        - num_class: 1
+          class_names: ["accessory_main"]
+      sample_positive_fraction: -1
+      sample_size: 512
+      bbox_coder:
+        type_name: DeltaXYZWLHRBBoxCoderIDG
+        code_size: 7
+        use_bbox_used_in_mainline: False
+      target_assigners:
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.3
+          class_name: TrainedOthers
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.45
+          class_name: smallMot
+          region_similarity_calculator: 
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: bigMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.4
+          unmatched_threshold: 0.2
+          class_name: nonMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.92
+          unmatched_threshold: 0.77
+          class_name: pedestrian
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: verybigMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.98
+          unmatched_threshold: 0.83
+          class_name: pedestrian_sub
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: accessory_main
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+      quantize: -1
+      use_anchor_mask: True
+      near_bcpts: False 
+      pc_range: [-120, -120, -5, 120, 120, 5]
+      voxel_size: [0.2083, 0.2083, 10.0]
+      num_anchor_per_locs_by_class: [[1],[4],[4],[2],[1],[4],[1],[4]]
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.001 # change to epsilon from eps for paddle norm_cfg_2
+      momentum: 0.99 #0.01
+      requires_grad: True
+    tasks:
+      - num_class: 1
+        class_names: ['TrainedOthers']
+      - num_class: 1
+        class_names: ["smallMot"]
+      - num_class: 1
+        class_names: ["bigMot"]
+      - num_class: 1
+        class_names: ["nonMot"]
+      - num_class: 1
+        class_names: ["pedestrian"]
+      - num_class: 1
+        class_names: ["verybigMot"]
+      - num_class: 1
+        class_names: ["pedestrian_sub"]
+      - num_class: 1
+        class_names: ["accessory_main"]
+    weights: [1,]
+    bbox_coder:
+      type_name: DeltaXYZWLHRBBoxCoderIDG
+      code_size: 7
+      use_bbox_used_in_mainline: False
+    encode_background_as_zeros: True
+    anchor_cfg:
+      anchor_generators:
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.3946, 0.3957, 0.7657]] # wlh,
+          ranges: [[-120, -120, -2.0920, 120, 120, -2.0920]]
+          rotations: [0.0]
+          out_downsample_size: 1 
+          class_name: "TrainedOthers"
+
+        - type_name: AlignedAnchor3DRangeGenerator
+          sizes: [[1.8582, 4.2488, 1.5632], [2.1340, 4.6585, 1.7840]] # wlh
+          ranges: [[-120, -120, -1.9342, 120, 120, -1.9342]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2 
+          class_name: "smallMot" 
+
+        - type_name: AlignedAnchor3DRangeGenerator
+          sizes: [[3.0111, 9.6663, 3.3182], [2.0855, 5.0784, 2.1013]] #wlh
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2 
+          class_name: "bigMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.8480, 1.9163, 1.4149]]
+          ranges: [[-120, -120, -1.9851, 120, 120, -1.9851]]
+          rotations: [0, 1.57]
+          out_downsample_size: 1 
+          class_name: "nonMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.6753, 0.6589, 1.6715]]
+          ranges: [[-120, -120, -1.8941, 120, 120, -1.8941]]
+          rotations: [0.0]
+          out_downsample_size: 1 
+          class_name: "pedestrian"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[3.4311, 18.2966, 4.1296], [3.0436, 11.7372, 3.4212]]
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2 
+          class_name: "verybigMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.6431, 0.5721, 1.3665]]
+          ranges: [[0, -30, -1.0468, 60, 30, -1.0468]]
+          rotations: [0.0]
+          out_downsample_size: 2 
+          class_name: "pedestrian_sub"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[3.1010, 7.5727, 3.7635], [2.8044, 4.9681, 3.3286]]
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2 
+          class_name: "accessory_main"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.8480, 1.9163, 1.4149]]
+          ranges: [[-120, -120, -1.2777, 120, 120, -1.2777]]
+          rotations: [0, 1.57]
+          out_downsample_size: 1 
+          class_name: "OnlyBicycle"
+
+      tasks:  
+        - num_class: 1
+          class_names: ['TrainedOthers']
+        - num_class: 1
+          class_names: ["smallMot"]
+        - num_class: 1
+          class_names: ["bigMot"]
+        - num_class: 1
+          class_names: ["nonMot"]
+        - num_class: 1
+          class_names: ["pedestrian"]
+        - num_class: 1
+          class_names: ["verybigMot"]
+        - num_class: 1
+          class_names: ["pedestrian_sub"]
+        - num_class: 1
+          class_names: ["accessory_main"]
+        - num_class: 1
+          class_names: ["OnlyBicycle", "fog", "spike"]
+    anchor_bctps: 
+      mode: true
+      near_bcpts: False
+    pred_bctps: 
+      mode: true
+      near_bcpts: true
+      only_normal_dir: False
+    loss_norm:
+      type_name: NormByNumPositives
+      pos_cls_weight: 2.0
+      neg_cls_weight: 0.5
+    loss_cls:
+      type_name: WeightedSigmoidLoss
+      loss_weight: 0.1
+    use_sigmoid_score: True
+    loss_bbox:
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      codewise: True
+      loss_weight: 1.0
+    loss_anchor_bctps: 
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      codewise: True
+      loss_weight: 1.0
+      weights_unsqueeze: False
+    loss_pred_bctps:
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      codewise: True
+      loss_weight: [1, 1, 1, 1, 1, 1, 1, 1]
+      weights_unsqueeze: False
+    encode_rad_error_by_sin: True
+    loss_aux:
+      type_name: WeightedSoftmaxClassificationLossIDG
+      name: direction_classifier
+      task_loss_aux_weight: [0, 1.0, 1.0, 1.0, 0, 1.0, 0, 1.0]
+      loss_weight: 0.2
+    direction_offset: 0.0 
+    bg_iof_threshold: 0.1
+    fg_iof_threshold: 0.5
+    bg_cls_loss_weight: 1
+    use_sub_region_head: True
+    sub_region_attr: 
+      sub_region_postfix: _sub
+      sub_region_class: [['pedestrian'], ]
+      sub_region_head_index: [1]
+      sub_region_range: [[0, 60], [-30, 30]]
+      full_region_range: [[-120, 120], [-120, 120]]
+  pts_roi_head:
+    type: "ConfidenceHead"
+    mode: "3d"
+    in_channels: 121 # int(sum([18, 32, 64, 128]) / 2),  # this is linked to 'neck' us_num_filters
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.001 # change to epsilon from eps for paddle
+      momentum: 0.99 #0.01
+      requires_grad: True
+    tasks:
+      - num_class: 1
+        class_names: ['TrainedOthers']
+      - num_class: 1
+        class_names: ["smallMot"]
+      - num_class: 1
+        class_names: ["bigMot"]
+      - num_class: 1
+        class_names: ["nonMot"]
+      - num_class: 1
+        class_names: ["pedestrian"]
+      - num_class: 1
+        class_names: ["verybigMot"]
+      - num_class: 1
+        class_names: ["pedestrian_sub"]
+      - num_class: 1
+        class_names: ["accessory_main"]
+        
+    weights: [1,]
+    bbox_coder:
+      type_name: DeltaXYZWLHRBBoxCoderIDG
+      code_size: 7
+      use_bbox_used_in_mainline: False
+    encode_background_as_zeros: True
+    loss_cls:
+      type_name: CrossEntropyLossIDG
+      use_sigmoid: True
+      loss_weight: 1.0
+    loss_norm:
+      type_name: NormByNumPoints
+    use_sigmoid_score: True
+    use_direction_classifier: True
+    pc_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10.0]
+    grid_size: [1152, 1152, 1]
+    direction_offset: 0.0 
+    rpn_cfg:
+      score_threshold: 0.05
+      nms_pre_max_size: 5000
+      use_nms: 1
+      nms_post_max_size: 2000
+      nms_iou_threshold: 0.5
+      use_gt_boxes: True
+    use_sub_region_head: True
+    sub_region_attr: 
+      sub_region_postfix: _sub
+      sub_region_class: [['pedestrian'], ]
+      sub_region_head_index: [1]
+      sub_region_range: [[0, 60], [-30, 30]]
+      full_region_range: [[-120, 120], [-120, 120]]
+
+optimizer:
+  type: AdamWOnecycleClipGlobalNorm
+  clip_grad_by_global_norm: 10.0
+  beta1: 0.9
+  beta2: 0.99
+  weight_decay: 0.01
+
+lr_scheduler:
+  type: OneCycle
+  total_step: 14718 #29442 # 22500 #iters * epochs
+  lr_max: 0.00025 #0.000125 #bs8
+  moms: [0.95, 0.85]
+  div_factor: 10
+  pct_start: 0.4
+
+
+
+# optimizer:
+#   type: AdamW
+#   weight_decay: 0.01
+#   grad_clip:
+#     type: ClipGradByGlobalNorm
+#     clip_norm: 35
+
+
+# lr_scheduler:
+#   type: LinearWarmup
+#   learning_rate:
+#     type: CosineAnnealingDecayByEpoch
+#     learning_rate: 0.0002
+#     T_max: 24
+#     eta_min: 0.0000002
+#   warmup_steps: 500
+#   start_lr: 0.00006666666
+#   end_lr: 0.0002
