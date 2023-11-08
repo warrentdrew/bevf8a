@@ -1,1 +1,0 @@
-from paddle3d.models.detection.bevfusion_idg.bevf_faster_rcnn_v1 import SEBlock
