@@ -20,4 +20,3 @@ from .transformer_decoder import *
 from .uniform_bev_grid_transformer import *
 from .merge_augs import *
 from .cam2bev import *
-from .bevf_faster_lidarrcnn import *

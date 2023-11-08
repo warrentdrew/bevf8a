@@ -97,7 +97,7 @@ PD_BUILD_OP(boxes_overlap_bev_v2_gpu)
     .SetKernelFn(PD_KERNEL(boxes_overlap_bev_v2_gpu))
     .SetInferDtypeFn(PD_INFER_DTYPE(BoxesOverlapBevGpuInferDtype))
     .SetInferShapeFn(PD_INFER_SHAPE(BoxesOverlapBevGpuInferShape));
-  
+
 PD_BUILD_OP(nms_gpu)
     .Inputs({"boxes"})
     .Outputs({"keep", "num_to_keep"})

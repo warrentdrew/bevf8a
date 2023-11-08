@@ -160,7 +160,7 @@ class DetectionMetricData(MetricData):
     nelem = 101
 
     def __init__(self,
-                 ap: np.float,
+                 ap: np.float32,
                  recall: np.array,
                  precision: np.array,
                  trans_err: np.array,

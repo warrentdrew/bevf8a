@@ -60,7 +60,7 @@ std::vector<paddle::Tensor> cnnseg_feature_generator_gpu(const paddle::Tensor &p
     CHECK_INPUT(points);
     CHECK_INPUT(points2grid);
     auto cnnseg_feature = paddle::full({cnnseg_feature_dim, grid_size_y, grid_size_x}, 0.0, points.type(), paddle::GPUPlace());
-    cnnseg_feature = paddle::scatter(cnnseg_feature, paddle::full({1}, 0, points2grid.type(), paddle::GPUPlace()), paddle::full({1, grid_size_y, grid_size_x}, -5.0, points.type(), paddle::GPUPlace()));
+    cnnseg_feature = paddle::scatter(cnnseg_feature, paddle::full({1}, 0, points2grid.type(), paddle::GPUPlace()), paddle::full({1, grid_size_y, grid_size_x}, -5.0, points.type(), paddle::GPUPlace())); // TODO1023
     const float* points_data = points.data<float>();
     const int* points2grid_data = points2grid.data<int>();
     float* cnnseg_feature_data = cnnseg_feature.data<float>();

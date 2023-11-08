@@ -35,7 +35,7 @@ from paddle3d.transforms import functional as F
 from paddle3d.transforms.base import TransformABC
 from paddle3d.transforms.functional import points_to_voxel
 from paddle3d.utils import box_utils
-from paddle3d.utils_idg.box_np_ops import points_in_rbbox
+from paddle3d.utils_idg.box_np_ops import points_in_rbbox, rotation_points_single_angle
 
 __all__ = [
     "RandomHorizontalFlip", "RandomVerticalFlip", "GlobalRotate", "GlobalScale",
@@ -119,7 +119,76 @@ class SampleRangeFilter(object):
         gt_bboxes_3d = gt_bboxes_3d[mask]
 
         gt_labels_3d = gt_labels_3d[mask.astype(np.bool_)]
-        gt_names_3d = np.array(gt_names_3d)[mask.astype(np.bool)]
+        gt_names_3d = np.array(gt_names_3d)[mask.astype(np.bool_)]
+        
+        # limit rad to [-pi, pi]
+        gt_bboxes_3d = self.limit_yaw(
+            gt_bboxes_3d, offset=0.5, period=2 * np.pi)
+        sample['gt_bboxes_3d'] = gt_bboxes_3d
+        sample['gt_labels_3d'] = gt_labels_3d
+        sample['gt_names_3d'] = gt_names_3d
+        
+        return sample
+
+
+
+
+@manager.TRANSFORMS.add_component
+class ObjectRangeFilter(object):
+    """
+    Filter samples by the range.
+
+    Args:
+        point_cloud_range (list[float]): Point cloud range.
+    """
+
+    def __init__(self, point_cloud_range):
+        self.pcd_range = np.array(point_cloud_range, dtype=np.float32)
+
+    def in_range_bev(self, box_range, gt_bboxes_3d):
+        """
+        Check whether the boxes are in the given range.
+        """
+        in_range_flags = ((gt_bboxes_3d[:, 0] > box_range[0])
+                          & (gt_bboxes_3d[:, 1] > box_range[1])
+                          & (gt_bboxes_3d[:, 0] < box_range[2])
+                          & (gt_bboxes_3d[:, 1] < box_range[3]))
+        return in_range_flags
+
+    def limit_yaw(self, gt_bboxes_3d, offset=0.5, period=np.pi):
+        """Limit the yaw to a given period and offset.
+
+        Args:
+            offset (float): The offset of the yaw.
+            period (float): The expected period.
+        """
+        gt_bboxes_3d[:, 6] = limit_period(gt_bboxes_3d[:, 6], offset, period)
+        return gt_bboxes_3d
+
+    def __call__(self, sample):
+        """Call function to filter objects by the range.
+
+        Args:
+            sample (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d' \
+                keys are updated in the Sample.
+        """
+        if isinstance(sample['gt_bboxes_3d'], (BBoxes3D, np.ndarray)):
+            bev_range = self.pcd_range[[0, 1, 3, 4]]
+        else:
+            bev_range = self.pcd_range[[0, 2, 3, 5]]
+
+        gt_bboxes_3d = sample['gt_bboxes_3d']
+        gt_labels_3d = sample['gt_labels_3d']
+        gt_names_3d = sample['gt_names_3d']
+
+        mask = self.in_range_bev(bev_range, gt_bboxes_3d)
+        gt_bboxes_3d = gt_bboxes_3d[mask]
+
+        gt_labels_3d = gt_labels_3d[mask.astype(np.bool_)]
+        gt_names_3d = np.array(gt_names_3d)[mask.numpy().astype(np.bool)]
 
         # limit rad to [-pi, pi]
         gt_bboxes_3d = self.limit_yaw(
@@ -162,7 +231,6 @@ class SampleNameFilter(object):
         return sample
 
 
-
 @manager.TRANSFORMS.add_component
 class MyNormalize(object):
     """Normalize the image.
@@ -199,8 +267,6 @@ class MyNormalize(object):
         return sample
 
 
-
-
 @manager.TRANSFORMS.add_component
 class RandomScaleImageMultiViewImage(object):
     """Random scale the image
@@ -223,6 +289,7 @@ class RandomScaleImageMultiViewImage(object):
         """
         if self.fix_size == False:
             if len(self.scales) == 2:
+                # np.random.seed(0)
                 rand_scale = np.random.uniform(low=self.scales[0], high=self.scales[1])
                 y_size = [int(img.shape[0] * rand_scale) for img in sample['img']]
                 x_size = [int(img.shape[1] * rand_scale) for img in sample['img']]
@@ -259,8 +326,10 @@ class RandomScaleImageMultiViewImage(object):
 
             lidar2img = []
             idx=0
+            #print("x_size.len: {}, sample['lidar2img'].len: {}".format(len(x_size), len(sample['lidar2img'])))
             for l2i in sample['lidar2img']:
                 lidar2img.append(scale_factors[idx] @ l2i)
+                #print("lidar2img[{}]: {}".format(idx, lidar2img[idx]))
                 idx += 1
             sample['lidar2img'] = lidar2img
             sample['img_shape'] = [img.shape for img in sample['img']]
@@ -311,20 +380,26 @@ class DefaultFormatBundle(object):
                 default bundle.
         """
         if 'img' in results:
+            # print(isinstance(results['img'], list), 'format')
             if isinstance(results['img'], list):
                 # process multiple imgs in single frame
+                # print(len(results['img']), [im.shape for im in results['img']], 'list')
                 imgs = [img.transpose(2, 0, 1) for img in results['img']]
                 imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
                 results['img'] = imgs
             else:
+                # print(results['img'].shape, 'notlist')
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
                 results['img'] = img
         if 'img_depth' in results:
+            # print(isinstance(results['img'], list), 'format')
             if isinstance(results['img_depth'], list):
                 # process multiple imgs in single frame
+                # print(len(results['img']), [im.shape for im in results['img']], 'list')
                 imgs = np.ascontiguousarray(np.stack(results['img_depth'], axis=0))
                 results['img_depth'] = imgs
             else:
+                # print(results['img'].shape, 'notlist')
                 img = np.ascontiguousarray(results['img_depth'])
                 results['img_depth'] = img
         if 'gt_semantic_seg' in results:
@@ -628,8 +703,11 @@ class CustomRandomFlip3D(TransformABC):
                         region['region'][1] = -region['region'][1] # x, y, z, radius
                     elif direction == 'vertical':
                         region['region'][0] = -region['region'][0] # x, y, z, radius
+                
+                # 8A
                 elif region['type'] == 3:
-                    self.flip(region['region'], direction)
+                    # region['region'].flip(direction)
+                    region['region'] = self.flip(region['region'], direction)
                 else:
                     raise NotImplementedError
 
@@ -646,10 +724,12 @@ class CustomRandomFlip3D(TransformABC):
                 into result dict.
         """
         if 'pcd_horizontal_flip' not in input_dict:
+            # np.random.seed(0)
             flip_horizontal = True if np.random.rand(
             ) < self.flip_ratio_bev_horizontal else False
             input_dict['pcd_horizontal_flip'] = flip_horizontal
         if 'pcd_vertical_flip' not in input_dict:
+            # np.random.seed(0)
             flip_vertical = True if np.random.rand(
             ) < self.flip_ratio_bev_vertical else False
             input_dict['pcd_vertical_flip'] = flip_vertical
@@ -840,11 +920,16 @@ class ObjectSample(TransformABC):
             'points', 'gt_bboxes_3d', 'gt_labels_3d' keys are updated
             in the result dict.
         """
+        # gt_names_3d = input_dict.pop('gt_names_3d')
+        # 8A
         gt_names_3d = input_dict['gt_names_3d']
         if self.disabled:
             return input_dict
 
         all_region_is_type3 = False
+
+        # if 'roi_regions' in input_dict and len(input_dict['roi_regions']) > 0:
+        #     return input_dict
         if 'roi_regions' in input_dict:
             all_region_is_type3 = all(x['type'] ==3 for x in input_dict['roi_regions'])
         if (not all_region_is_type3) and 'roi_regions' in input_dict and input_dict['roi_regions'] is not None and len(input_dict['roi_regions']) > 0:
@@ -886,13 +971,14 @@ class ObjectSample(TransformABC):
             gt_labels_3d = np.concatenate([gt_labels_3d, sampled_gt_labels],
                                           axis=0)
             gt_names_3d = np.concatenate([gt_names_3d, sampled_gt_names],
-                                          axis=0)
+                                    axis=0)
             gt_bboxes_3d = np.concatenate(
                     [gt_bboxes_3d, sampled_gt_bboxes_3d])
 
             # points = self.remove_points_in_boxes(points, sampled_gt_bboxes_3d)
-            points = self.remove_points_in_boxes(points, sampled_dict['collision_boxes'])
             # check the points dimension
+
+            points = self.remove_points_in_boxes(points, sampled_dict['collision_boxes'])
             points = np.concatenate([sampled_points, points])
 
             if self.sample_2d:

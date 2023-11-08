@@ -27,8 +27,6 @@ import paddle
 from paddle3d.apis import manager
 from paddle3d.sample import Sample
 from paddle3d.transforms.base import TransformABC
-from paddle3d.utils_idg.box_np_ops import rotation_points_single_angle
-from paddle3d.geometries.bbox import BBoxes3D
 
 cv2_interp_codes = {
     'nearest': cv2.INTER_NEAREST,
@@ -112,6 +110,7 @@ class ResizeImage(TransformABC):
     def random_select(img_scales):
         """Randomly select an img_scale from given candidates.
         """
+        # np.random.seed(0)
         scale_idx = np.random.randint(len(img_scales))
         img_scale = img_scales[scale_idx]
         return img_scale, scale_idx
@@ -122,9 +121,11 @@ class ResizeImage(TransformABC):
         """
         img_scale_long = [max(s) for s in img_scales]
         img_scale_short = [min(s) for s in img_scales]
+        # np.random.seed(0)
         long_edge = np.random.randint(
             min(img_scale_long),
             max(img_scale_long) + 1)
+        # np.random.seed(0)
         short_edge = np.random.randint(
             min(img_scale_short),
             max(img_scale_short) + 1)
@@ -139,6 +140,7 @@ class ResizeImage(TransformABC):
         assert isinstance(img_scale, list) and len(img_scale) == 2
         min_ratio, max_ratio = ratio_range
         assert min_ratio <= max_ratio
+        # np.random.seed(0)
         ratio = np.random.random_sample() * (max_ratio - min_ratio) + min_ratio
         scale = int(img_scale[0] * ratio), int(img_scale[1] * ratio)
         return scale, None
@@ -484,15 +486,15 @@ class SampleFilterByKey(TransformABC):
         filtered_sample['img_metas'] = img_metas
         for key in self.keys:
             filtered_sample[key] = sample[key]
-
+        
         if 'roi_regions' in self.keys:
             for i in range(len(filtered_sample['roi_regions'])):
-                if filtered_sample['roi_regions'][i]['region'].shape[0]<=0:
+                if filtered_sample['roi_regions'][i]['region'].shape[0] <= 0:
                     filtered_sample['roi_regions'][i]['region'] = np.ones((1, 7), dtype=np.float32)
-                    filtered_sample['roi_regions'][i]['is_emtpy'] = True
+                    filtered_sample['roi_regions'][i]['is_empty'] = True
                 else:
-                    filtered_sample['roi_regions'][i]['is_emtpy'] = False
-
+                    filtered_sample['roi_regions'][i]['is_empty'] = False
+        
         return filtered_sample
 
 
@@ -603,6 +605,7 @@ class LoadPointsFromMultiSweeps(object):
         if point_cloud_angle_range is not None:
             self.filter_by_angle = True
             self.point_cloud_angle_range = point_cloud_angle_range
+            print(point_cloud_angle_range)
         else:
             self.filter_by_angle = False
             # self.point_cloud_angle_range = point_cloud_angle_range
@@ -685,6 +688,7 @@ class LoadPointsFromMultiSweeps(object):
             elif self.test_mode:
                 choices = np.arange(self.sweeps_num)
             else:
+                # np.random.seed(0)
                 choices = np.random.choice(
                     len(results['sweeps']), self.sweeps_num, replace=False)
             for idx in choices:
@@ -756,12 +760,14 @@ class GlobalRotScaleTrans(TransformABC):
         else:
             translation_std = self.translation_std
         translation_std = np.array(translation_std, dtype=np.float32)
+        # np.random.seed(0)
         trans_factor = np.random.normal(scale=translation_std, size=3).T
 
         input_dict['points'][:, :3] += trans_factor
         input_dict['pcd_trans'] = trans_factor
         for key in input_dict['bbox3d_fields']:
             input_dict[key][:, :3] += trans_factor
+    
         if 'roi_regions' in input_dict and len(input_dict['roi_regions']) > 0:
             for region in input_dict['roi_regions']:
                 if region['type'] == 1:
@@ -769,7 +775,8 @@ class GlobalRotScaleTrans(TransformABC):
                 elif region['type'] == 2:
                     region['region'][:3] += trans_factor # x, y, z, radius
                 elif region['type'] == 3:
-                    region['region'][:, :3] += trans_factor
+                    # region['region'].translate(trans_factor)
+                    input_dict[key][:, :3] += trans_factor # TODO yipin: check
                 else:
                     raise NotImplementedError
 
@@ -785,6 +792,7 @@ class GlobalRotScaleTrans(TransformABC):
                 in the result dict.
         """
         rotation = self.rot_range
+        # np.random.seed(0)
         noise_rotation = np.random.uniform(rotation[0], rotation[1])
 
         rot_sin = np.sin(noise_rotation)
@@ -806,25 +814,8 @@ class GlobalRotScaleTrans(TransformABC):
                 input_dict['gt_bboxes_3d'] = gt_bboxes_3d
                 input_dict['pcd_rotation'] = rot_mat_T
 
-        if 'roi_regions' in input_dict and len(input_dict['roi_regions']) > 0:
-            for region in input_dict['roi_regions']:
-                if region['type'] == 1:
-                    raise NotImplementedError
-                elif region['type'] == 2:
-                    region['region'][:3] = rotation_points_single_angle(
-                            (region['region'].reshape((1, -1)))[:, :3], noise_rotation, axis=2
-                        )[0]
-                elif region['type'] == 3:
-                    region['region'][:, :3] = region['region'][:, :3] @ rot_mat_T
-                    region['region'][:, 6] += noise_rotation
 
-                    if region['region'].shape[1] == 9:
-                        # rotate velo vector
-                        region['region'][:, 7:
-                                    9] = region['region'][:, 7:9] @ rot_mat_T[:2, :2]
-                else:
-                    raise NotImplementedError
-        
+
         # rotate points in clock-wise
         rot_sin = np.sin(-noise_rotation)
         rot_cos = np.cos(-noise_rotation)
@@ -854,7 +845,7 @@ class GlobalRotScaleTrans(TransformABC):
         for key in input_dict['bbox3d_fields']:
             input_dict[key][:, :6] *= scale
             input_dict[key][:, 7:] *= scale
-
+    
         if 'roi_regions' in input_dict and len(input_dict['roi_regions']) > 0:
             for region in input_dict['roi_regions']:
                 if region['type'] == 1:
@@ -862,8 +853,7 @@ class GlobalRotScaleTrans(TransformABC):
                 elif region['type'] == 2:
                     region['region'][:] *= scale
                 elif region['type'] == 3:
-                    region['region'][:, :6] *= scale
-                    region['region'][:, 7:] *= scale
+                    region['region'].scale(scale) # TODO yipin check
                 else:
                     raise NotImplementedError
 
@@ -877,6 +867,7 @@ class GlobalRotScaleTrans(TransformABC):
             dict: Results after scaling, 'pcd_scale_factor' are updated \
                 in the result dict.
         """
+        # np.random.seed(0)
         scale_factor = np.random.uniform(self.scale_ratio_range[0],
                                          self.scale_ratio_range[1])
         input_dict['pcd_scale_factor'] = scale_factor
@@ -946,6 +937,38 @@ class RandomFlip3D(TransformABC):
                 flip_ratio_bev_vertical,
                 (int, float)) and 0 <= flip_ratio_bev_vertical <= 1
 
+
+    def flip(self, tensor, bev_direction='horizontal', points=None):
+        """Flip the boxes in BEV along given BEV direction.
+
+        In LIDAR coordinates, it flips the y (horizontal) or x (vertical) axis.
+
+        Args:
+            bev_direction (str): Flip direction (horizontal or vertical).
+            points (torch.Tensor, numpy.ndarray, :obj:`BasePoints`, None):
+                Points to flip. Defaults to None.
+
+        Returns:
+            torch.Tensor, numpy.ndarray or None: Flipped points.
+        """
+        assert bev_direction in ('horizontal', 'vertical')
+        if bev_direction == 'horizontal':
+            tensor[:, 1::7] = -tensor[:, 1::7]
+            if tensor.shape[-1] > 6:
+                tensor[:, 6] = -tensor[:, 6] + np.pi
+        elif bev_direction == 'vertical':
+            tensor[:, 0::7] = -tensor[:, 0::7]
+            if tensor.shape[-1] > 6:
+                tensor[:, 6] = -tensor[:, 6]
+
+        if points is not None:
+            if bev_direction == 'horizontal':
+                points[:, 1] = -points[:, 1]
+            elif bev_direction == 'vertical':
+                points[:, 0] = -points[:, 0]
+            return tensor, points
+        return tensor
+
     def random_flip_data_3d(self, input_dict, direction='horizontal'):
         """Flip 3D data randomly.
 
@@ -971,7 +994,13 @@ class RandomFlip3D(TransformABC):
                 input_dict[key][:, 6] = -input_dict[key][:, 6] + np.pi
             else:
                 raise NotImplementedError
-            
+
+        # flip points
+        if direction == 'horizontal':
+            input_dict['points'][:, 1] = -input_dict['points'][:, 1]
+        else:
+            raise NotImplementedError
+    
         if 'roi_regions' in input_dict and len(input_dict['roi_regions']) > 0:
             for region in input_dict['roi_regions']:
                 if region['type'] == 1:
@@ -982,19 +1011,11 @@ class RandomFlip3D(TransformABC):
                     elif direction == 'vertical':
                         region['region'][0] = -region['region'][0] # x, y, z, radius
                 elif region['type'] == 3:
-                    if direction == 'horizontal':
-                        region['region'][:, 1::7] = -region['region'][:, 1::7]
-                        region['region'][:, 6] = -region['region'][:, 6] + np.pi
-                    else:
-                        raise NotImplementedError
+                    # region['region'].flip(direction)
+                    region['region'] = self.flip(region['region'], direction)
                 else:
                     raise NotImplementedError
 
-        # flip points
-        if direction == 'horizontal':
-            input_dict['points'][:, 1] = -input_dict['points'][:, 1]
-        else:
-            raise NotImplementedError
 
     def __call__(self, input_dict):
         """Call function to flip points, values in the ``bbox3d_fields`` and \
@@ -1009,10 +1030,12 @@ class RandomFlip3D(TransformABC):
                 into result dict.
         """
         if 'pcd_horizontal_flip' not in input_dict:
+            # np.random.seed(0)
             flip_horizontal = True if np.random.rand(
             ) < self.flip_ratio_bev_horizontal else False
             input_dict['pcd_horizontal_flip'] = flip_horizontal
         if 'pcd_vertical_flip' not in input_dict:
+            # np.random.seed(0)
             flip_vertical = True if np.random.rand(
             ) < self.flip_ratio_bev_vertical else False
             input_dict['pcd_vertical_flip'] = flip_vertical

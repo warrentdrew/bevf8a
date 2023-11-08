@@ -132,17 +132,16 @@ class AssignTargetTorch(object):
                 )
             else:
                 batch_anchors_mask_by_task = None
-            return batch_anchors_mask_by_task
-            # return {
-            #     'labels': batch_anchors_mask_by_task[0],
-            #     'reg_targets': batch_anchors_mask_by_task[1],
-            #     'reg_weights': batch_anchors_mask_by_task[2],
-            #     'positive_gt_id': batch_anchors_mask_by_task[3],
-            #     'anchors_mask': batch_anchors_mask_by_task[4],
-            #     'bctp_targets': batch_anchors_mask_by_task[5],
-            #     'border_mask_weights': batch_anchors_mask_by_task[6],
-            #     'regions_mask': batch_anchors_mask_by_task[7],
-            # }
+            return {
+                'labels': batch_anchors_mask_by_task[0],
+                'reg_targets': batch_anchors_mask_by_task[1],
+                'reg_weights': batch_anchors_mask_by_task[2],
+                'positive_gt_id': batch_anchors_mask_by_task[3],
+                'anchors_mask': batch_anchors_mask_by_task[4],
+                'bctp_targets': batch_anchors_mask_by_task[5],
+                'border_mask_weights': batch_anchors_mask_by_task[6],
+                'regions_mask': batch_anchors_mask_by_task[7],
+            }
         batch_size_device = batch_anchors[0].shape[0]
 
         batch_anchors_by_class = []
@@ -186,13 +185,22 @@ class AssignTargetTorch(object):
                     else:
                         mask = (gt_classes_task[batch_id] == (class_id + 1)) # default: encode background by zero
 
-                        
-                    batch_gt_boxes_class.append(gt_boxes_task[batch_id][mask])
-                    batch_gt_classes_class.append(gt_classes_task[batch_id][mask])
-                    if num_points_in_gts is not None:
-                        batch_num_points_in_gts.append(num_points_in_gts_task[batch_id][mask])
-                    if border_masks is not None:
-                        batch_border_masks_class.append(border_masks_task[batch_id][mask])
+                    # print("check: ", gt_boxes_task[batch_id][mask])
+                    if mask.shape[0] == 0:  # TODO check adapt to paddle dev
+                        batch_gt_boxes_class.append(gt_boxes_task[batch_id])
+                        batch_gt_classes_class.append(gt_classes_task[batch_id])
+                        if num_points_in_gts is not None:
+                            batch_num_points_in_gts.append(num_points_in_gts_task[batch_id])
+                        if border_masks is not None:
+                            batch_border_masks_class.append(border_masks_task[batch_id])
+                    else:
+                        batch_gt_boxes_class.append(gt_boxes_task[batch_id][mask])
+                        batch_gt_classes_class.append(gt_classes_task[batch_id][mask])
+                        if num_points_in_gts is not None:
+                            batch_num_points_in_gts.append(num_points_in_gts_task[batch_id][mask])
+                        if border_masks is not None:
+                            batch_border_masks_class.append(border_masks_task[batch_id][mask])
+
                 batch_gt_boxes_by_class.append(batch_gt_boxes_class)
                 batch_gt_classes_by_class.append(batch_gt_classes_class)
                 if num_points_in_gts is not None:
@@ -353,17 +361,16 @@ class AssignTargetTorch(object):
         else:
             regions_mask = None
 
-        return labels, reg_targets, reg_weights, positive_gt_id, anchors_mask, bctp_targets, border_mask_weights, regions_mask
-        # return {
-        #     'labels': labels,
-        #     'reg_targets': reg_targets,
-        #     'reg_weights': reg_weights,
-        #     'positive_gt_id': positive_gt_id,
-        #     'anchors_mask': anchors_mask,
-        #     'bctp_targets': bctp_targets, 
-        #     'border_mask_weights': border_mask_weights, 
-        #     'regions_mask': regions_mask
-        # }
+        return {
+            'labels': labels,
+            'reg_targets': reg_targets,
+            'reg_weights': reg_weights,
+            'positive_gt_id': positive_gt_id,
+            'anchors_mask': anchors_mask,
+            'bctp_targets': bctp_targets, 
+            'border_mask_weights': border_mask_weights, 
+            'regions_mask': regions_mask
+        }
 
    
 

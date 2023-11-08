@@ -83,12 +83,17 @@ parsing_to_boxes_confidence(const paddle::Tensor &boxes,
   int w = confidence_map.shape()[0]; // nx
   const float *boxes_data = boxes.data<float>();
   const float *confidence_map_data = confidence_map.data<float>();
+  // std::cout << "!!conf map shape: " << confidence_map.shape()[1] << std::endl;
   auto confidences = paddle::full({box_num}, 0.0, paddle::DataType::FLOAT32, paddle::GPUPlace()); 
   float *confidences_data = confidences.data<float>();
 
   ParsingToBoxesConfLauncher(boxes.stream(), box_num, boxes_data, w,
                                  confidence_map_data, confidences_data);
-
+  // std::cout << "sync " << std::endl;
+  // cudaDeviceSynchronize();
+  // if (cudaSuccess != cudaGetLastError()) {
+  //   printf("Error in cuda!\n");
+  // }
   return {confidences};
 }
 

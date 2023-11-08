@@ -53,7 +53,7 @@ class SpatialCrossAttention(nn.Layer):
                  embed_dims=256,
                  num_cams=6,
                  pc_range=None,
-                 dropout=0.1, #wangna11
+                 dropout=0.1, # TODO 1026
                  batch_first=False,
                  deformable_attention=dict(
                      type_name='MSDeformableAttention3D',
@@ -151,11 +151,9 @@ class SpatialCrossAttention(nn.Layer):
 
         D = reference_points_cam.shape[3]
         indexes = []
-        # for i, mask_per_img in enumerate(bev_mask):
-        #     index_query_per_img = mask_per_img[0].sum(-1).nonzero().squeeze(-1)
-        #     indexes.append(index_query_per_img)
-        # max_len = paddle.max(bev_mask.any(-1).sum(-1))
-        # max_len = int(max_len)
+
+        # add 8A
+        # =========================================================
         bev_mask_clone = paddle.transpose(bev_mask, [1, 0, 2, 3])  # [bs, num_cam, num_query, D]
         for j in range(bs):
             indexes_j = []
@@ -164,8 +162,8 @@ class SpatialCrossAttention(nn.Layer):
                 indexes_j.append(indexes_ij)
             indexes.append(indexes_j)
         max_len = max([len(ij) for each in indexes for ij in each])
+        # print("max_len: ", max_len)
         if max_len>0:
-
             #max_len = 2500
             #max_len = max([len(each) for each in indexes])
 
@@ -175,23 +173,25 @@ class SpatialCrossAttention(nn.Layer):
             reference_points_rebatch = paddle.zeros(
                 [bs, self.num_cams, max_len, D, 2],
                 dtype=reference_points_cam.dtype)
-
+            print("=====test0====")
             for j in range(bs):
                 for i, reference_points_per_img in enumerate(reference_points_cam):
                     # index_query_per_img = indexes[i]
                     index_query_per_img = indexes[j][i]
                     #queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
+                    print("=====test1====")
                     queries_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(query[j], index_query_per_img)
+                    print("=====test2====")
                     #reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
                     reference_points_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(reference_points_per_img[j], index_query_per_img)
-
+                    print("=====test3====")
             num_cams, l, bs, embed_dims = key.shape
 
             key = key.transpose([2, 0, 1, 3]).reshape(
                 [bs * self.num_cams, l, self.embed_dims])
             value = value.transpose([2, 0, 1, 3]).reshape(
                 [bs * self.num_cams, l, self.embed_dims])
-
+            print("=====test4====")
             queries = self.deformable_attention(
                 query=queries_rebatch.reshape(
                     [bs * self.num_cams, max_len, self.embed_dims]),
@@ -205,20 +205,85 @@ class SpatialCrossAttention(nn.Layer):
             for j in range(bs):
                 for i, index_query_per_img in enumerate(indexes[j]):
                     #slots[j, index_query_per_img] += queries[j, i, :len(index_query_per_img)]
-                    if index_query_per_img.shape[0] > 0:
-                        bs_idx = paddle.full_like(
-                            index_query_per_img, j, dtype=index_query_per_img.dtype)
-                        scatter_index = paddle.stack(
-                            [bs_idx, index_query_per_img]).transpose([1, 0])
-                        slots = paddle.scatter_nd_add(
-                            slots, scatter_index,
-                            queries[j, i, :len(index_query_per_img)])
-
-            count = bev_mask.sum(-1) > 0
+                    bs_idx = paddle.full_like(
+                        index_query_per_img, j, dtype=index_query_per_img.dtype)
+                    scatter_index = paddle.stack(
+                        [bs_idx, index_query_per_img]).transpose([1, 0])
+                    slots = paddle.scatter_nd_add(
+                        slots, scatter_index,
+                        queries[j, i, :len(index_query_per_img)])
+            print("=====test5====")    
+            count = bev_mask.sum(-1) > 0    # changed out of if
             count = count.transpose([1, 2, 0]).sum(-1)
             count = paddle.clip(count, min=1.0)
             slots = slots / count[..., None]
             slots = self.output_proj(slots)
+
+        # ===================================================
+
+        # bev_mask_clone = paddle.transpose(bev_mask, (1, 0, 2, 3))   # 8A
+        # for j in range(bs):
+        #     indexes_j = []
+        #     for i, mask_per_img in enumerate(bev_mask_clone[j]):
+        #         indexes_ij = mask_per_img.sum(-1).nonzero().squeeze(-1)
+        #         indexes_j.append(indexes_ij)
+        #     indexes.append(indexes_j)
+
+        # max_len = max([len(ij) for each in indexes for ij in each])
+        # # max_len = int(max_len)
+        # #max_len = 2500
+        # #max_len = max([len(each) for each in indexes])
+
+        # # each camera only interacts with its corresponding BEV queries. This step can  greatly save GPU memory.
+        # queries_rebatch = paddle.zeros(
+        #     [bs, self.num_cams, max_len, self.embed_dims], dtype=query.dtype)
+        # reference_points_rebatch = paddle.zeros(
+        #     [bs, self.num_cams, max_len, D, 2],
+        #     dtype=reference_points_cam.dtype)
+
+        # for j in range(bs):
+        #     for i, reference_points_per_img in enumerate(reference_points_cam):
+        #         # index_query_per_img = indexes[i]
+        #         index_query_per_img = indexes[j][i] # 8A
+        #         #queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
+        #         queries_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(query[j], index_query_per_img)
+        #         #reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
+        #         reference_points_rebatch[j, i, :len(index_query_per_img)] = paddle.gather(reference_points_per_img[j], index_query_per_img)
+
+        # num_cams, l, bs, embed_dims = key.shape
+
+        # key = key.transpose([2, 0, 1, 3]).reshape(
+        #     [bs * self.num_cams, l, self.embed_dims])
+        # value = value.transpose([2, 0, 1, 3]).reshape(
+        #     [bs * self.num_cams, l, self.embed_dims])
+
+        # queries = self.deformable_attention(
+        #     query=queries_rebatch.reshape(
+        #         [bs * self.num_cams, max_len, self.embed_dims]),
+        #     key=key,
+        #     value=value,
+        #     reference_points=reference_points_rebatch.reshape(
+        #         [bs * self.num_cams, max_len, D, 2]),
+        #     spatial_shapes=spatial_shapes,
+        #     level_start_index=level_start_index).reshape(
+        #         [bs, self.num_cams, max_len, self.embed_dims])
+        # for j in range(bs):
+        #     # for i, index_query_per_img in enumerate(indexes):
+        #     for i, index_query_per_img in enumerate(indexes[j]): # 8A
+        #         slots[j, index_query_per_img] += queries[j, i, :len(index_query_per_img)]
+        #         # bs_idx = paddle.full_like(
+        #         #     index_query_per_img, j, dtype=index_query_per_img.dtype)
+        #         # scatter_index = paddle.stack(
+        #         #     [bs_idx, index_query_per_img]).transpose([1, 0])
+        #         # slots = paddle.scatter_nd_add(
+        #         #     slots, scatter_index,
+        #         #     queries[j, i, :len(index_query_per_img)])
+
+        # count = bev_mask.sum(-1) > 0
+        # count = count.transpose([1, 2, 0]).sum(-1)
+        # count = paddle.clip(count, min=1.0)
+        # slots = slots / count[..., None]
+        # slots = self.output_proj(slots)
 
         return self.dropout(slots) + inp_residual
 

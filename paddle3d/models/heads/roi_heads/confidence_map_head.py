@@ -308,10 +308,8 @@ class ConfidenceHead(paddle.nn.Layer):
                     # box_preds = box_preds[a_mask]   
                     # cls_preds = cls_preds[a_mask]
                     a_index = paddle.where(a_mask)[0].squeeze(-1)
-                    if a_index.shape[0] > 0:
-                        box_preds = box_preds.index_select(a_index)
-                        cls_preds = cls_preds.index_select(a_index)
-        
+                    box_preds = box_preds.index_select(a_index)
+                    cls_preds = cls_preds.index_select(a_index)
                 box_preds = box_preds.astype(dtype='float32')
                 cls_preds = cls_preds.astype(dtype='float32')
                 if self.encode_background_as_zeros:
@@ -608,7 +606,7 @@ class ConfidenceHead(paddle.nn.Layer):
             box_ndim = self.box_n_dim
             if kwargs.get('mode', False):
                 batch_box_preds_base = batch_box_preds.reshape((batch_size, -1, box_ndim))
-                batch_box_preds = batch_task_anchors.clone()
+                batch_box_preds = batch_task_anchors # .clone()
                 batch_box_preds[:, :, ([0, 1, 3, 4, 6])] = batch_box_preds_base
             else:
                 batch_box_preds = batch_box_preds.reshape((batch_size, -1, box_ndim))

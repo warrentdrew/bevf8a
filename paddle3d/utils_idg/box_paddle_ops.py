@@ -19,7 +19,6 @@ limitations under the License.
 import numpy as np
 
 import paddle
-from paddle import stack as tstack
 from paddle3d.utils_idg.ops.nms_gpu import (nms_overlap_gpu, rotate_nms_overlap_gpu, nms_gpu)
 import paddle3d.utils_idg.box_np_ops as box_np_ops
 
@@ -29,6 +28,7 @@ def check_numpy_to_paddle(x):
     if isinstance(x, np.float64) or isinstance(x, np.float32):
         return paddle.to_tensor([x]).cast('float32'), True
     return x, False
+
 
 def corners_nd(dims, origin=0.5):
     """generate relative box corners based on length per dim and
@@ -81,6 +81,8 @@ def rotation_2d(points, angles):
     rot_cos = paddle.cos(angles)
     rot_mat_T = paddle.stack(
         [paddle.stack([rot_cos, -rot_sin]), paddle.stack([rot_sin, rot_cos])])
+    # print("points shape: ", points.shape)
+    # print('rot_mat_T shape: ', rot_mat_T.shape)
     return paddle.einsum("aij,jka->aik", points, rot_mat_T)
 
 
@@ -255,7 +257,7 @@ def nms(bboxes, scores, pre_max_size=None, post_max_size=None, iou_threshold=0.5
         num_keeped_scores = scores.shape[0]
         pre_max_size = min(num_keeped_scores, pre_max_size)
         scores, indices = paddle.topk(scores, k=pre_max_size)
-        bboxes = bboxes.index_select(indices) #bboxes[indices]
+        bboxes = bboxes.index_select(indices)#bboxes[indices]
         # bboxes = bboxes.reshape([-1, box_ndim])
     dets = paddle.concat([bboxes, scores.unsqueeze(-1)], axis=1)
     dets_np = dets.numpy()
@@ -338,65 +340,27 @@ def rotate_nms_overlap(bboxes,
         return paddle.to_tensor(keep)
 
 
-def rotation_3d_in_axis(points, angles, axis=2):
-    # points: [N, point_size, 3]
-    # angles: [N]
-    rot_sin = paddle.sin(angles)
-    rot_cos = paddle.cos(angles)
-    ones = paddle.ones_like(rot_cos)
-    zeros = paddle.zeros_like(rot_cos)
-    if axis == 1:
-        rot_mat_T = tstack(
-            [
-                tstack([rot_cos, zeros, -rot_sin]),
-                tstack([zeros, ones, zeros]),
-                tstack([rot_sin, zeros, rot_cos]),
-            ]
-        )
-    elif axis == 2 or axis == -1:
-        rot_mat_T = tstack(
-            [
-                tstack([rot_cos, -rot_sin, zeros]),
-                tstack([rot_sin, rot_cos, zeros]),
-                tstack([zeros, zeros, ones]),
-            ]
-        )
-    elif axis == 0:
-        rot_mat_T = tstack(
-            [
-                tstack([zeros, rot_cos, -rot_sin]),
-                tstack([zeros, rot_sin, rot_cos]),
-                tstack([ones, zeros, zeros]),
-            ]
-        )
-    else:
-        raise ValueError("axis should in range")
-    # print(points.shape, rot_mat_T.shape)
-    return torch.einsum("aij,jka->aik", points, rot_mat_T)
 
-
-def center_to_corner_box3d(centers, dims, angles, origin=(0.5, 0.5, 0.5), axis=2):
-    """convert kitti locations, dimensions and angles to corners
-
-    Args:
-        centers (float array, shape=[N, 3]): locations in kitti label file.
-        dims (float array, shape=[N, 3]): dimensions in kitti label file.
-        angles (float array, shape=[N]): rotation_y in kitti label file.
-        origin (list or array or float): origin point relate to smallest point.
-            use [0.5, 1.0, 0.5] in camera and [0.5, 0.5, 0] in lidar.
-        axis (int): rotation axis. 1 for camera and 2 for lidar.
-    Returns:
-        [type]: [description]
+# ==========
+# 8A
+def enlarge_box3d_by_ratio(boxes3d, extra_ratio=0.5):
     """
-    # 'length' in kitti format is in x axis.
-    # yzx(hwl)(kitti label file)<->xyz(lhw)(camera)<->z(-x)(-y)(wlh)(lidar)
-    # center in kitti format is [0.5, 1.0, 0.5] in xyz.
-    corners = corners_nd(dims, origin=origin)
-    # corners: [N, 8, 3]
-    corners = rotation_3d_in_axis(corners, angles, axis=axis)
-    corners += centers.reshape([-1, 1, 3])
-    return corners
+    Args:
+        boxes3d: [x, y, z, dx, dy, dz, heading], (x, y, z) is the box center
+        extra_width: [extra_x, extra_y, extra_z]
 
+    Returns:
+
+    """
+    boxes3d, is_numpy = check_numpy_to_paddle(boxes3d)
+    large_boxes3d = boxes3d.clone()
+    large_boxes3d[:, 3:6] += boxes3d[:, 3:6] * extra_ratio
+    return large_boxes3d
+
+
+
+# ==========
+# 8A
 def enlarge_box3d(boxes3d, extra_width=(0, 0, 0)):
     """
     Args:
@@ -411,5 +375,5 @@ def enlarge_box3d(boxes3d, extra_width=(0, 0, 0)):
     if isinstance(extra_width, paddle.Tensor):
         large_boxes3d[:, 3:6] += extra_width
     else:
-        large_boxes3d[:, 3:6] += paddle.to_tensor(extra_width, dtype=boxes3d.dtype)[None, :]
+        large_boxes3d[:, 3:6] += boxes3d.new_tensor(extra_width)[None, :]
     return large_boxes3d

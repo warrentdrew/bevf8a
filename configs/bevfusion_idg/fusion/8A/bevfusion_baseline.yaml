@@ -66,7 +66,7 @@ train_dataset:
       point_cloud_range: [-120, -120, -5, 120, 120, 5]
     - type: SampleNameFilter  # instead of object name filter
       classes: *class_names_with_bg
-    # - type: PointShuffle  # todo remove for match
+    - type: PointShuffle  # todo remove for match
     - type: RandomScaleImageMultiViewImage
       scales: [0.4]
       fix_size: True
@@ -303,7 +303,7 @@ model:
             }
           ]
           feedforward_channels: 128
-          ffn_dropout: 0.0 #0.1 # TODO zhuyipin
+          ffn_dropout: 0.1 # TODO zhuyipin
           operation_order: ['cross_attn', 'norm', 'ffn', 'norm']      
   pts_voxel_layer:
     max_num_points: -1

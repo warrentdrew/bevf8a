@@ -353,9 +353,7 @@ class Config(object):
             'train_dataset': self.train_dataset,
             'val_dataset': self.val_dataset,
             'batch_size': self.batch_size,
-            'amp_cfg': self.amp_config,
-            'revert_syncbn_status': self.dic.get('revert_syncbn_status', False),
-            'find_unused_parameters': self.dic.get('find_unused_parameters', False)
+            'amp_cfg': self.amp_config
         })
 
         return dic

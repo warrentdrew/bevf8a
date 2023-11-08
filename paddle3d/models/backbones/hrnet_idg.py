@@ -547,10 +547,10 @@ class HighResolutionNet(paddle.nn.Layer):
         feats.append(x)
         return [x]
 
-    def train(self):
-        """ as name """
-        super(HighResolutionNet, self).train()
-        if self.norm_eval:
-            for m in self.sublayers():
-                if isinstance(m, paddle.nn.BatchNorm2D):
-                    m.eval()
+    # def train(self):
+    #     """ as name """
+    #     super(HighResolutionNet, self).train()
+    #     if self.norm_eval:
+    #         for m in self.sublayers():
+    #             if isinstance(m, paddle.nn.BatchNorm2D):
+    #                 m.eval()

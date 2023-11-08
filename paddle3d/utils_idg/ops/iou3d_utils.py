@@ -32,12 +32,10 @@ def boxes3d_to_near_torch(boxes3d):
         boxes_near: [N, 4(xmin, ymin, xmax, ymax)] nearest boxes
     """
     rboxes = boxes3d.index_select(paddle.to_tensor([0, 1, 3, 4, 6]), axis= 1) 
-    # rboxes = paddle.concat([boxes3d[:, 0:2], boxes3d[:, 3:5], boxes3d[:, 6:7]], axis=1)
     rots = rboxes[..., -1]
     rots_0_pi_div_2 = paddle.abs(limit_period(rots, 0.5, math.pi))
     cond = (rots_0_pi_div_2 > math.pi / 4)[..., None]
-    rboxes_ = paddle.concat([rboxes[:, 0:2], rboxes[:, 3:4], rboxes[:, 2:3]], axis=1)
-    boxes_center = paddle.where(cond, rboxes_, rboxes[:, :4])
+    boxes_center = paddle.where(cond, rboxes.index_select(paddle.to_tensor([0, 1, 3, 2]), axis = 1), rboxes[:, :4])
     boxes_near = paddle.concat([boxes_center[:, :2] - boxes_center[:, 2:] / 2, 
                                 boxes_center[:, :2] + boxes_center[:, 2:] / 2], axis=-1)
     return boxes_near
@@ -132,6 +130,8 @@ def boxes_iou_bev(boxes_a, boxes_b):
     boxes_a_bev = boxes3d_to_bev_torch(boxes_a)
     boxes_b_bev = boxes3d_to_bev_torch(boxes_b)
 
+    # ans_iou = paddle.zeros((boxes_a_bev.shape[0], boxes_b_bev.shape[0]))
+
     ans_iou = iou3d_nms_cuda.boxes_iou_bev_gpu(boxes_a_bev, boxes_b_bev) 
     #  custom op already implemented in paddle3d
 
@@ -148,12 +148,8 @@ def boxes_iou3d_gpu(boxes_a, boxes_b):
     boxes_b_bev = boxes3d_to_bev_torch(boxes_b)
 
     # bev overlap
-    if boxes_a_bev.shape[-1] == 7:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a_bev, boxes_b_bev)
-    elif boxes_a_bev.shape[-1] == 5:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_v2_gpu(boxes_a_bev, boxes_b_bev)
-    else:
-        raise NotImplementedError
+    overlaps_bev = paddle.zeros((boxes_a_bev.shape[0], boxes_b_bev.shape[0]))
+    iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a_bev.contiguous(), boxes_b_bev.contiguous(), overlaps_bev)
 
     # height overlap
     boxes_a_height_max = (boxes_a[:, 2] + boxes_a[:, 5]).reshape((-1, 1)) 
@@ -247,8 +243,32 @@ def parsing_to_boxes_confidence(boxes, confidence_map):
     :return: confidences
     """
     confidences = iou3d_idg.parsing_to_boxes_confidence(boxes, confidence_map)
+
     return confidences
 
+
+def boxes_iom_bev(boxes_a, boxes_b):
+    """
+    :param boxes_a: (M, 7)
+    :param boxes_b: (N, 7)
+    :return:
+        ans_iou: (M, N)
+    """
+    boxes_a_bev = boxes3d_to_bev_torch(boxes_a)
+    boxes_b_bev = boxes3d_to_bev_torch(boxes_b)
+
+    # overlaps_bev = paddle.zeros((boxes_a_bev.shape[0], boxes_b_bev.shape[0])) #torch.cuda.FloatTensor(torch.Size((boxes_a_bev.shape[0], boxes_b_bev.shape[0]))).zero_()  # (M, N)
+
+    overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a_bev, boxes_b_bev) #.contiguous()) # , overlaps_bev)
+
+    area_a = (boxes_a[:, 3] * boxes_a[:, 4]).reshape((-1, 1)).tile((1, boxes_b.shape[0])) #.view(-1, 1).repeat(1, boxes_b.size(0))
+    area_b = (boxes_b[:, 3] * boxes_b[:, 4]).reshape((1, -1)).tile((boxes_a.shape[0], 1))#.view(1, -1).repeat(boxes_a.size(0), 1)
+
+    area_a[area_a > area_b] = area_b[area_a > area_b]
+
+    iom_bev = overlaps_bev / paddle.clip(area_a, min=1e-7) #torch.clamp(area_a, min=1e-7)
+
+    return iom_bev
 
 class RotateIou2dSimilarity(object):
     """Class to compute similarity based on Intersection over Union (IOU) metric.
@@ -321,6 +341,7 @@ class DistanceSimilarity(object):
             with_rotation=self._with_rotation,
             rot_alpha=self._rotation_alpha)
 
+
 def boxes_iou_bev_v2(boxes_a, boxes_b, mode='iou'):
     """
     :param boxes_a: (M, 7)
@@ -332,12 +353,7 @@ def boxes_iou_bev_v2(boxes_a, boxes_b, mode='iou'):
     boxes_b_bev = boxes3d_to_bev_torch(boxes_b)
 
     # bev overlap
-    if boxes_a_bev.shape[-1] == 7:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a_bev, boxes_b_bev)
-    elif boxes_a_bev.shape[-1] == 5:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_v2_gpu(boxes_a_bev, boxes_b_bev)
-    else:
-        raise NotImplementedError
+    overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_v2_gpu(boxes_a_bev, boxes_b_bev)
 
     area_a = (boxes_a[:, 3] * boxes_a[:, 4]).reshape([-1, 1])
     area_b = (boxes_b[:, 3] * boxes_b[:, 4]).reshape([1, -1])
@@ -350,32 +366,7 @@ def boxes_iou_bev_v2(boxes_a, boxes_b, mode='iou'):
 
     return iou3d
 
-def boxes_iom_bev(boxes_a, boxes_b):
-    """
-    :param boxes_a: (M, 7)
-    :param boxes_b: (N, 7)
-    :return:
-        ans_iou: (M, N)
-    """
-    boxes_a_bev = boxes3d_to_bev_torch(boxes_a)
-    boxes_b_bev = boxes3d_to_bev_torch(boxes_b)
 
-    if boxes_a_bev.shape[-1] == 7:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a_bev, boxes_b_bev)
-    elif boxes_a_bev.shape[-1] == 5:
-        overlaps_bev = iou3d_nms_cuda.boxes_overlap_bev_v2_gpu(boxes_a_bev, boxes_b_bev)
-    else:
-        raise NotImplementedError
-
-    area_a = (boxes_a[:, 3] * boxes_a[:, 4]).reshape([-1, 1]).repeat_interleave(boxes_b.shape[0], 1)
-    area_b = (boxes_b[:, 3] * boxes_b[:, 4]).reshape([1, -1]).repeat_interleave(boxes_a.shape[0], 0)
-
-    # area_a[area_a > area_b] = area_b[area_a > area_b]
-    area_a = paddle.where(area_a > area_b, area_b, area_a)
-
-    iom_bev = overlaps_bev / paddle.clip(area_a, min=1e-7)
-
-    return iom_bev
 
 if __name__ == '__main__':
     pass

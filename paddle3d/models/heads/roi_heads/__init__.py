@@ -17,6 +17,3 @@ limitations under the License.
 
 from .target_assigner import *
 from .confidence_map_head import ConfidenceHead
-from .dynamic_point_roi_extractor import *
-from .lidar_rcnn_headv2 import *
-from .sir_layerv2 import *

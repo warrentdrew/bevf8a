@@ -14,12 +14,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-import math
-import copy
-import numpy as np
-
 import paddle
 from paddle import nn
+import math
+import copy
 from paddle import ParamAttr
 from paddle.nn.initializer import Constant, Normal
 
@@ -28,7 +26,6 @@ norm_cfg = {
     "BN": ("bn", nn.BatchNorm2D),
     "BN1d": ("bn1d", nn.BatchNorm1D),
     "GN": ("gn", nn.GroupNorm),
-    "LN": ("ln", nn.LayerNorm),
 
 }
 
@@ -99,24 +96,3 @@ def build_conv_layer(cfg, *args, **kwargs):
     layer = conv_layer(*args, **kwargs, **cfg_)
 
     return layer
-
-def get_activation_layer(act):
-    """Return an activation function given a string"""
-    act = act.lower()
-    if act == "relu":
-        act_layer = nn.ReLU()
-    elif act == "gelu":
-        act_layer = Gelu()
-    elif act == "leakyrelu":
-        act_layer = nn.LeakyReLU()
-    else:
-        raise NotImplementedError
-    return act_layer
-
-class Gelu(nn.Layer):
-    def __init__(self):
-        super(Gelu, self).__init__()
-
-    def forward(self, x):
-        cdf = 0.5 * (1.0 + paddle.tanh((np.sqrt(2 / np.pi)) * (x + 0.044715 * paddle.pow(x, 3))))
-        return x * cdf

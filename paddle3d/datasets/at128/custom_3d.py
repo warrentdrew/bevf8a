@@ -243,7 +243,7 @@ class Custom3DDataset(Dataset):
         Returns:
             int: Length of data infos.
         """
-        return len(self.data_infos)
+        return len(self.data_infos) # // 10 # TODO yipin: use full length
 
     def _rand_another(self, idx):
         """Randomly get another item with the same flag.

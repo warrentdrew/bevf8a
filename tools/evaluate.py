@@ -54,12 +54,6 @@ def parse_args():
         help='Num workers for data loader',
         type=int,
         default=2)
-    parser.add_argument(
-        '--out',
-        dest='out',
-        help='result path',
-        type=str,
-        default=None)
 
     return parser.parse_args()
 
@@ -106,7 +100,7 @@ def main(args):
         dic['resume'] = True
 
     trainer = Trainer(**dic)
-    trainer.evaluate(args.out)
+    trainer.evaluate()
 
 
 if __name__ == '__main__':

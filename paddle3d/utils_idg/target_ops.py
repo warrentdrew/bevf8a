@@ -280,11 +280,37 @@ def assign_label_to_box(boxes, confidence_map, grid_size, voxel_size,
         max=grid_size[1] - 1)
 
     corners = corners.reshape([corners.shape[0], -1])
+    # print("p8: ", corners.shape)
+    # print("p8 cm: ", confidence_map.shape)
+    # paddle.save(corners, "ptbc_corners.pdt")
+    # paddle.save(confidence_map, "confidence_map.pdt")
     confidences = iou3d_utils.parsing_to_boxes_confidence(corners, confidence_map)
-
+    # print("p9: ", confidences)
     return confidences
 
 # new feature
+# def cal_task_roi_region_mask(anchors, roi_regions):
+#     batch_size = len(roi_regions)
+#     mask = paddle.zeros(anchors[:, :, 0].shape)
+#     for batch_id in range(batch_size):
+#         regions = roi_regions[batch_id]
+#         if len(regions) == 0:
+#             mask[batch_id, :] = 1.0 # TODO
+#         else:
+#             for region in regions:
+#                 if region['type'] == 2:
+#                     xy_a = anchors[batch_id, :, [0, 1]] # TODO
+#                     center_xf = region['region'][0]
+#                     center_yf = region['region'][1]
+#                     radius = region['region'][3]
+#                     center = paddle.to_tensor([center_xf, center_yf], dtype=anchors.dtype).reshape((-1, 2))
+#                     dist = paddle.linalg.norm(xy_a - center, p=2, axis=1) 
+#                     mask[batch_id, dist <= radius] = 1.0    #TODO
+#                 else:
+#                     raise NotImplementedError
+#     return mask > 0
+
+# 8A
 def cal_task_roi_region_mask(anchors, roi_regions, type3_roi_regions, task_idx):
     batch_size = len(roi_regions)
     mask = paddle.zeros(anchors[:, :, 0].shape)
@@ -326,6 +352,8 @@ def cal_task_roi_region_mask(anchors, roi_regions, type3_roi_regions, task_idx):
 # new feature
 def cal_roi_region_mask(anchors_list, roi_regions):
     region_mask_list = []
+    # for anchors in anchors_list:
+        # mask = cal_task_roi_region_mask(anchors, roi_regions)
     common_regions = [[] for _ in range(len(roi_regions))]
     type3_regions = [[] for _ in range(len(roi_regions))]
     for batch_id, batch_roi_regions in enumerate(roi_regions):
@@ -336,7 +364,7 @@ def cal_roi_region_mask(anchors_list, roi_regions):
                 common_regions[batch_id].append(region)
 
     for task_idx, anchors in enumerate(anchors_list):
-        mask = cal_task_roi_region_mask(anchors, common_regions, type3_regions, task_idx)
+        mask = cal_task_roi_region_mask(anchors, common_regions, type3_regions, task_idx)      
         region_mask_list.append(mask)
     return region_mask_list
 
@@ -369,16 +397,12 @@ def create_target_paddle(all_anchors,
 
         if data.dim() == 1:
             ret = paddle.full((count, ), fill, dtype=data.dtype)
-            if data.shape[0] <= 0:
-                return ret
             idx = paddle.where(inds)[0].squeeze(-1)
             ret = ret.put_along_axis(idx, data, axis = 0)
 
         else:
             new_size = (count, *data.shape[1:]) 
             ret = paddle.full(new_size, fill, dtype=data.dtype)
-            if data.shape[0] <= 0:
-                return ret
             idx = paddle.where(inds)[0].squeeze()
             ret = paddle.scatter(ret, idx, data)
 
@@ -485,12 +509,14 @@ def create_target_paddle(all_anchors,
     else:
         bg_inds = paddle.arange(num_inside)
 
+    # =======================
     # fg_inds = paddle.nonzero(labels > 0)[:, 0]
     if labels.shape[0] > 0:
         fg_inds = paddle.nonzero(labels > 0)[:, 0]
     else:
-        fg_inds = paddle.to_tensor([], dtype='int64')
-        
+        fg_inds = paddle.to_tensor([], dtype = 'int64')
+
+    # =======================
     fg_max_overlap = None
     if len(gt_boxes) > 0:
         # TODO(luoqianhui): paddle.index_select cannot support zero-shape input
@@ -511,6 +537,7 @@ def create_target_paddle(all_anchors,
     if positive_fraction is not None:
         num_fg = int(positive_fraction * rpn_batch_size)
         if len(fg_inds) > num_fg:
+            # np.random.seed(0) # TODO yipin
             disable_inds = np.random.choice(
                 fg_inds, size=(len(fg_inds) - num_fg), replace=False)
             disable_label_init = paddle.full(
@@ -524,6 +551,7 @@ def create_target_paddle(all_anchors,
         # samples will not have repeats)
         num_bg = rpn_batch_size - np.sum(labels > 0)
         if len(bg_inds) > num_bg:
+            # np.random.seed(0)
             enable_inds = bg_inds[np.random.randint(len(bg_inds), size=num_bg)]
             enable_label_init = paddle.zeros(
                 enable_inds.shape, dtype=labels.dtype)
@@ -531,8 +559,7 @@ def create_target_paddle(all_anchors,
                 labels, enable_inds, updates=enable_label_init)
     else:
         if len(gt_boxes) == 0 or anchors.shape[0] == 0:
-            # labels[:] = 0
-            labels = paddle.ones([labels.shape[0]], dtype='int32')
+            labels[:] = 0
         else:
             # TODO(luoqianhui): setitem cost too much time
             # so we replace it with scatter temporarily
@@ -609,3 +636,5 @@ def create_target_paddle(all_anchors,
     else:
         ret["assigned_anchors_inds"] = fg_inds
     return ret
+
+

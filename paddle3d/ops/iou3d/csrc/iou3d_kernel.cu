@@ -408,7 +408,6 @@ __global__ void parsing_box_confs_kernel(const int box_num, const float *boxes_d
 
     int count = 0;
     float conf_sum = 0;
-
     for(int i=xmin; i <= xmax; ++i) {
         for(int j=ymin; j <= ymax; ++j) {
             double angl1 = (i + 0.5 - x1) * (x2 - x1) + (j + 0.5 - y1) * (y2 - y1);
@@ -417,7 +416,7 @@ __global__ void parsing_box_confs_kernel(const int box_num, const float *boxes_d
             double angl4 = (i + 0.5 - x4) * (x1 - x4) + (j + 0.5 - y4) * (y1 - y4);
             if((angl1 < 0 && angl2 < 0 && angl3 < 0 && angl4 < 0) || 
                 (angl1 > 0 && angl2 > 0 && angl3 > 0 && angl4 > 0)) {
-                if(conf_map_data[j * w + i] >= 0) {
+                if((j * w + i < w) && conf_map_data[j * w + i] >= 0) {
                     conf_sum += conf_map_data[j * w + i];
                     count ++;
                 }
@@ -426,14 +425,17 @@ __global__ void parsing_box_confs_kernel(const int box_num, const float *boxes_d
     }
 
     if (count == 0) {
-        if(conf_map_data[(int)(y1 * w + x1)] >= 0) {
+        // printf("conf_map_data_index_count: %d\n", (int)(y1 * w + x1));
+        if(((int)(y1 * w + x1) < w) && conf_map_data[(int)(y1 * w + x1)] >= 0) {
             confs_data[idx] = conf_map_data[(int)(y1 * w + x1)];
         } else {
+            // printf("cout is %d\n", confs_data[idx]);
             confs_data[idx] = 0;
         }
     } else {
         confs_data[idx] = conf_sum / count;
     }
+
 }
 
 
@@ -533,7 +535,8 @@ void BoxesToParsingWithWeightLauncher(const cudaStream_t &stream, const int box_
 void ParsingToBoxesConfLauncher(const cudaStream_t &stream, const int box_num, const float *boxes_data, const int w, const float *conf_map_data, float *confs_data){
     dim3 blocks(DIVUP(box_num, THREADS_PER_BLOCK_ANCHOR));  // blockIdx.x(col), blockIdx.y(row)
     dim3 threads(THREADS_PER_BLOCK_ANCHOR);
-    
+    // std::cout << "sybnc1 " << std::endl;
+    // printf("sybnc1\n");
     parsing_box_confs_kernel<<<blocks, threads, 0, stream>>>(box_num, boxes_data, w, conf_map_data, confs_data);
 }
 

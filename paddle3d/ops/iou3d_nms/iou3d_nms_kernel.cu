@@ -62,11 +62,13 @@ __device__ int check_rect_cross(const Point &p1, const Point &p2,
   return ret;
 }
 
+//8A	
 __device__ inline int check_in_box2d_bev(const float *box, const Point &p) {
   // params: box (5) [x1, y1, x2, y2, angle]
   const float MARGIN = 1e-5;
 
   float center_x = (box[0] + box[2]) / 2;
+	
   float center_y = (box[1] + box[3]) / 2;
   float angle_cos = cos(-box[4]),
         angle_sin =
@@ -78,6 +80,7 @@ __device__ inline int check_in_box2d_bev(const float *box, const Point &p) {
   return (rot_x > box[0] - MARGIN && rot_x < box[2] + MARGIN &&
           rot_y > box[1] - MARGIN && rot_y < box[3] + MARGIN);
 }
+
 
 __device__ inline int check_in_box2d(const float *box, const Point &p) {
   // params: (7) [x, y, z, dx, dy, dz, heading]
@@ -126,6 +129,7 @@ __device__ inline int intersection(const Point &p1, const Point &p0,
   return 1;
 }
 
+//8A
 __device__ inline void rotate_around_center_bev(const Point &center,
                                             const float angle_cos,
                                             const float angle_sin, Point &p) {
@@ -152,6 +156,7 @@ __device__ inline int point_cmp(const Point &a, const Point &b,
          atan2(b.y - center.y, b.x - center.x);
 }
 
+
 __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) {
   // params: box_a (5) [x1, y1, x2, y2, angle]
   // params: box_b (5) [x1, y1, x2, y2, angle]
@@ -173,6 +178,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
 
   Point box_a_corners[5];
   box_a_corners[0].set(a_x1, a_y1);
+	
   box_a_corners[1].set(a_x2, a_y1);
   box_a_corners[2].set(a_x2, a_y2);
   box_a_corners[3].set(a_x1, a_y2);
@@ -208,6 +214,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
   Point cross_points[16];
   Point poly_center;
   int cnt = 0, flag = 0;
+	
 
   poly_center.set(0, 0);
   for (int i = 0; i < 4; i++) {
@@ -219,6 +226,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
         poly_center = poly_center + cross_points[cnt];
         cnt++;
       }
+	
     }
   }
 
@@ -229,6 +237,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
       cross_points[cnt] = box_b_corners[k];
       cnt++;
     }
+	
     if (check_in_box2d_bev(box_b, box_a_corners[k])) {
       poly_center = poly_center + box_a_corners[k];
       cross_points[cnt] = box_a_corners[k];
@@ -238,6 +247,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
 
   poly_center.x /= cnt;
   poly_center.y /= cnt;
+	
 
   // sort the points of polygon
   Point temp;
@@ -253,6 +263,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
 
 #ifdef DEBUG
   printf("cnt=%d\n", cnt);
+	
   for (int i = 0; i < cnt; i++) {
     printf("All cross point %d: (%.3f, %.3f)\n", i, cross_points[i].x,
            cross_points[i].y);
@@ -265,6 +276,7 @@ __device__ inline float box_overlap_bev(const float *box_a, const float *box_b) 
     area += cross(cross_points[k] - cross_points[0],
                   cross_points[k + 1] - cross_points[0]);
   }
+	
 
   return fabs(area) / 2.0;
 }
@@ -608,6 +620,7 @@ void BoxesOverlapBevLauncher(const cudaStream_t &stream, const int num_a,
   cudaDeviceSynchronize();  // for using printf in kernel function
 #endif
 }
+
 
 void BoxesOverlapLauncher(const cudaStream_t &stream, const int num_a,
                           const float *boxes_a, const int num_b,

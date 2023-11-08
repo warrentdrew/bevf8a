@@ -33,9 +33,12 @@ const int THREADS_PER_BLOCK_NMS = sizeof(int64_t) * 8;
 void BoxesOverlapLauncher(const cudaStream_t &stream, const int num_a,
                           const float *boxes_a, const int num_b,
                           const float *boxes_b, float *ans_overlap);
+
+//8A 
 void BoxesOverlapBevLauncher(const cudaStream_t &stream, const int num_a,
                           const float *boxes_a, const int num_b,
                           const float *boxes_b, float *ans_overlap);
+
 void BoxesIouBevLauncher(const cudaStream_t &stream, const int num_a,
                          const float *boxes_a, const int num_b,
                          const float *boxes_b, float *ans_iou);
@@ -64,9 +67,11 @@ std::vector<paddle::Tensor> boxes_overlap_bev_gpu(
   return {ans_overlap};
 }
 
+//8A 
 std::vector<paddle::Tensor> boxes_overlap_bev_v2_gpu(
     const paddle::Tensor &boxes_a, const paddle::Tensor &boxes_b) {
   // params boxes_a: (N, 5) [x1, y1, x2, y2, angle]
+	
   // params boxes_b: (M, 5) [x1, y1, x2, y2, angle]
   // params ans_overlap: (N, M)
   int num_a = boxes_a.shape()[0];
@@ -83,6 +88,7 @@ std::vector<paddle::Tensor> boxes_overlap_bev_v2_gpu(
 
   return {ans_overlap};
 }
+
 
 std::vector<paddle::Tensor> boxes_iou_bev_gpu(
     const paddle::Tensor &boxes_a_tensor,
