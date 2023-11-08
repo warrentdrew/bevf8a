@@ -18,9 +18,7 @@ import pickle
 import logging
 from enum import Enum
 from typing import List
-
 from collections import OrderedDict
-
 import numpy as np
 from functools import partial
 import paddle
@@ -34,16 +32,76 @@ from paddle3d.utils_idg.build_layer import build_norm_layer
 from paddle3d.utils_idg.target_assigner_torch import AssignTargetTorch, build_torch_similarity_metric
 from paddle3d.utils_idg.target_ops import calculate_anchor_masks_paddle
 from paddle3d.geometries import BBoxes3D
-from paddle3d.models.layers.layer_libs import rotate_nms_pcdet
-from paddle3d.utils_idg.ops.nms_gpu import nms, nms_overlap, rotate_nms_overlap
+from paddle3d.utils_idg.ops.nms_gpu import nms, rotate_nms, nms_overlap, rotate_nms_overlap
 from paddle3d.models.layers import param_init, reset_parameters, constant_init, kaiming_normal_init, normal_init
 from paddle3d.utils_idg.box_utils import bbox_overlaps_nearest_3d
 from paddle3d.utils_idg.ops import iou3d_utils
 from paddle3d.models.heads.roi_heads.confidence_map_head import cat
 
-from paddle3d.utils_idg.sub_region_utils import get_class2id
-from paddle3d.utils_idg.preprocess import noise_gt_bboxesv2_
+def get_class2id(tasks, sub_type_postfix=None):
+    """
+    @param tasks:
+    @param sub_type_postfix
 
+    return dict {class_name: class_index}
+    """
+    tasks_class = [t["class_names"] for t in tasks]
+
+    class_names = []
+    for names in tasks_class:
+        class_names.extend(names)
+
+    class2id = {}
+    for i, token in enumerate(class_names):
+        class2id[token] =  i
+    
+    if sub_type_postfix is not None:
+        for i, token in enumerate(class_names):
+            if (token.endswith(sub_type_postfix)):
+                class2id[token] = class2id[token[:-len(sub_type_postfix)]]
+
+    return class2id
+
+def noise_gt_bboxesv2_(
+    gt_boxes,
+    thres=0.8,):
+    """random rotate or remove each groundtrutn independently.
+    use kitti viewer to test this function points_transform_
+
+    Args:
+        gt_boxes: [B, N, 7], gt box in lidar.points_transform_
+    """
+    # if paddle.rand(size=(1,))[0] < thres:
+    #     return gt_boxes
+    range_config = [
+        [0.1, 0.1, np.pi / 12, 0.7],
+        [0.2, 0.15, np.pi / 12, 0.6],
+        [0.3, 0.20, np.pi / 12, 0.5],
+        [0.3, 0.25, np.pi / 9, 0.3],
+        [0.4, 0.30, np.pi / 6, 0.2],
+    ]
+    num_gt, _ = gt_boxes.shape
+    idx = paddle.randint(low=0, high=len(range_config), shape=(1,))[0]
+    pos_rand = paddle.rand(shape=(num_gt, 3), dtype='float32')
+    pos_shift = ((pos_rand - 0.5) / 0.5) * range_config[idx][0]  # (B, N, 3)
+    hwl_rand = paddle.rand(shape=(num_gt, 3), dtype='float32')
+    hwl_scale = ((hwl_rand - 0.5) / 0.5) * range_config[idx][1] + 1.0
+    angle_rand = paddle.rand(shape=(num_gt, 1), dtype='float32')
+    angle_rot = ((angle_rand - 0.5) / 0.5) * range_config[idx][2]
+    # wangna11
+    # idx = 0
+    # pos_rand = 0.5 * paddle.ones(shape=(num_gt, 3), dtype='float32')
+    # pos_shift = ((pos_rand - 0.5) / 0.5) * range_config[idx][0]  # (B, N, 3)
+    # hwl_rand = 0.5 * paddle.ones(shape=(num_gt, 3), dtype='float32')
+    # hwl_scale = ((hwl_rand - 0.5) / 0.5) * range_config[idx][1] + 1.0
+    # angle_rand = 0.5 * paddle.ones(shape=(num_gt, 1), dtype='float32')
+    # angle_rot = ((angle_rand - 0.5) / 0.5) * range_config[idx][2]
+
+    aug_box3d = cat(
+        [gt_boxes[..., 0:3] + pos_shift, gt_boxes[..., 3:6] * hwl_scale, gt_boxes[..., 6:7] + angle_rot],
+        axis=-1,
+    )
+    return aug_box3d
 
 def bias_init_with_prob(prior_prob: float) -> float:
     """initialize conv/fc bias value according to a given probability value."""
@@ -464,8 +522,7 @@ class MultiGroupHead(nn.Layer):
         self.tasks = tasks
         self.num_classes = [len(t['class_names']) for t in tasks]
         self.class_names = [t['class_names'] for t in tasks]
-        self.name2class = {x[0]:i for i,x in enumerate(self.class_names)}  # add 8a
-            
+        self.name2class = {x[0]:i for i,x in enumerate(self.class_names)}
         self.tasks_weight = [float(t.get("weights", 1.0)) for t in tasks]
         print(f"use tasks weight {self.tasks_weight}")
         anchor_generators = anchor_cfg['anchor_generators']
@@ -516,7 +573,6 @@ class MultiGroupHead(nn.Layer):
             assert sub_region_attr is not None, 'ValueError: sub_region_attr should not be none when use sub_region head!'
             self.sub_region_postfix = sub_region_attr.get('sub_region_postfix',
                 '_sub')
-
             self.sub_region_class = sub_region_attr.get('sub_region_class', None)
             self.sub_region_range = sub_region_attr.get('sub_region_range',
                 [[0, 60], [-30, 30]])
@@ -526,8 +582,6 @@ class MultiGroupHead(nn.Layer):
                 'sub_region_head_index', [1])
             self.sub_region_grid_hrange = None
             self.sub_region_grid_vrange = None
-
-            # add 8a
             self.class2id = get_class2id(self.tasks, self.sub_region_postfix)
         else:
             self.class2id = get_class2id(self.tasks)
@@ -768,9 +822,10 @@ class MultiGroupHead(nn.Layer):
         gt_labels, box_preds, num_points_in_gts=None, gt_border_masks=None, roi_regions=None, test_mode=False):
         result = self.assign_target(coors, batch_anchors, gt_bboxes,
             gt_labels, box_preds, num_points_in_gts, gt_border_masks, roi_regions, test_mode)
-        return result['labels'], result['reg_targets'], result['reg_weights'], \
-                result['positive_gt_id'], result['anchors_mask'], result['bctp_targets'],\
-                result['border_mask_weights'], result['regions_mask']
+        return result
+        # return result['labels'], result['reg_targets'], result['reg_weights'], \
+        #         result['positive_gt_id'], result['anchors_mask'], result['bctp_targets'],\
+        #         result['border_mask_weights'], result['regions_mask']
 
     def prepare_loss_weights(self, 
                             labels,
@@ -1074,10 +1129,16 @@ class MultiGroupHead(nn.Layer):
                 iou_preds[i] = iou_preds[i].transpose(perm=[0, 2, 3, 1])
             if bctp_preds[i] is not None:
                 bctp_preds[i] = bctp_preds[i].transpose([0, 2, 3, 1])
+
         # if (["pedestrian_sub"] in self.class_names) and len(gt_bboxes) == 6:
+        #     gt_bboxes[5] = gt_bboxes[4]
+        #     gt_labels[5] = gt_labels[4]
+        # elif (["pedestrian_sub"] in self.class_names) and (len(gt_bboxes) == 7 or len(gt_bboxes) == 8):
+        #     gt_bboxes[6] = gt_bboxes[4]
+        #     gt_labels[6] = gt_labels[4]
+        #     gt_border_masks[6] = gt_border_masks[4]
+
         if self.use_sub_region_head:
-            # gt_bboxes[5] = gt_bboxes[4]
-            # gt_labels[5] = gt_labels[4]
             for class_name in self.class_names:
                 if class_name[0].endswith(self.sub_region_postfix):
                     org_name = class_name[0][:-len(self.sub_region_postfix)]
@@ -1086,12 +1147,7 @@ class MultiGroupHead(nn.Layer):
                     gt_bboxes[sub_idx] = gt_bboxes[org_idx]
                     gt_labels[sub_idx] = gt_labels[org_idx]
                     gt_border_masks[sub_idx] = gt_border_masks[org_idx]
-
-        # elif (["pedestrian_sub"] in self.class_names) and (len(gt_bboxes) == 7 or len(gt_bboxes) == 8):
-        #     gt_bboxes[6] = gt_bboxes[4]
-        #     gt_labels[6] = gt_labels[4]
-        #     gt_border_masks[6] = gt_border_masks[4]
-
+                    
         if self.assign_cfg:
             labels, reg_targets, reg_weights, positive_gt_id, anchors_mask, bctp_targets, border_mask_weights, regions_mask = self.assign_target_and_mask(coors, batch_anchors,
                 gt_bboxes, gt_labels, bbox_preds, num_points_in_gts, gt_border_masks, roi_regions)
@@ -1143,7 +1199,6 @@ class MultiGroupHead(nn.Layer):
                         [bg_bboxes] * num_task,
                         [bg_labels] * num_task,
                         regions_mask[:num_task] if regions_mask is not None else [None] * num_task)
-
         losses = {'loss_bbox': bbox_losses, 'loss_cls': cls_losses}
         if self.use_direction_classifier:
             losses['loss_dir'] = dir_losses
@@ -1314,11 +1369,10 @@ class MultiGroupHead(nn.Layer):
         return [[bboxes, scores, labels]], anchors_mask, batch_anchors
 
     def get_task_detections(self, task_id, num_class_with_bg, test_cfg,
-        batch_cls_preds, batch_reg_preds, batch_dir_preds=None,
-        batch_iou_preds=None, # add8a
+        batch_cls_preds, batch_reg_preds, batch_dir_preds=None, batch_iou_preds=None,
         batch_anchors_mask=None):
         predictions_dicts = []
-        post_center_range = test_cfg.post_center_limit_range
+        post_center_range = test_cfg['post_center_limit_range']
         if len(post_center_range) > 0:
             post_center_range = paddle.to_tensor(data=post_center_range,
                 dtype=batch_reg_preds.dtype, place=batch_reg_preds.place)
@@ -1333,14 +1387,9 @@ class MultiGroupHead(nn.Layer):
                 if a_mask is not None:
                     dir_preds = dir_preds[a_mask]
                 dir_labels = paddle.argmax(dir_preds, axis=-1) 
-            
-            # =========
-            # add 8a TODO1023
             if iou_preds is not None:
-                iou_preds = iou_preds[a_mask].cast("float32") #.float()
-                iou_scores = F.sigmoid(iou_preds).squeeze(-1)
-            
-            # =========
+                iou_preds = iou_preds[a_mask].cast('float32')
+                iou_scores = paddle.nn.functional.sigmoid(iou_preds).squeeze(-1)
             if self.encode_background_as_zeros:
                 assert self.use_sigmoid_score is True
                 total_scores = paddle.nn.functional.sigmoid(x=cls_preds)
@@ -1356,23 +1405,17 @@ class MultiGroupHead(nn.Layer):
                     dtype='int64')
             else:
                 top_scores = paddle.max(total_scores, axis = -1)
-                top_labels = paddle.argmax(total_scores, axis = -1)   
-
-            # if test_cfg.score_threshold > 0.0:
-            
-            if isinstance(test_cfg.score_threshold, list):
-                score_threshold = test_cfg.score_threshold[task_id]
+                top_labels = paddle.argmax(total_scores, axis = -1)           
+            if isinstance(test_cfg['score_threshold'], list):
+                score_threshold = test_cfg['score_threshold'][task_id]
             else:
-                score_threshold = test_cfg.score_threshold
-
-            if score_threshold > 0.0:  
+                score_threshold = test_cfg['score_threshold']
+            if score_threshold > 0.0:
                 thresh = paddle.to_tensor(data=[score_threshold],
                     place=total_scores.place).astype(dtype=total_scores.dtype)
                 top_scores_keep = top_scores >= thresh
                 top_scores = top_scores.masked_select(mask=top_scores_keep)
-
             if top_scores.shape[0] != 0:
-                # if test_cfg.score_threshold > 0.0:
                 if score_threshold > 0.0:
                     box_preds = box_preds[top_scores_keep]
                     if self.use_direction_classifier:
@@ -1385,34 +1428,28 @@ class MultiGroupHead(nn.Layer):
                         paddle.to_tensor(data=np.pi).astype(dtype=box_preds
                         .dtype), y=paddle.to_tensor(data=0.0).astype(dtype=
                         box_preds.dtype))
-
                 if iou_preds is not None:
                     iou_scores = iou_scores[top_scores_keep]
-
                 if post_center_range is not None:
                     mask = (box_preds[:, :3] >= post_center_range[:3]).all(axis
                         =1)
                     mask &= (box_preds[:, :3] <= post_center_range[3:]).all(
                         axis=1)
-                    predictions_dict = {
-                        'box3d_lidar': box_preds[mask],
+                    predictions_dict = {'box3d_lidar': box_preds[mask],
                         'scores': top_scores[mask], 
                         'label_preds': top_labels[mask],
-                        "iou_scores": iou_scores[mask] if iou_preds is not None else None} # 8a
+                        'iou_scores': iou_scores[mask] if iou_preds is not None else None,}
                 else:
-                    predictions_dict = {
-                        'box3d_lidar': box_preds, 
-                        'scores': top_scores, 
-                        'label_preds': top_labels,
-                        "iou_scores": iou_scores if iou_preds is not None else None} # 8a
+                    predictions_dict = {'box3d_lidar': box_preds, 
+                                        'scores': top_scores, 
+                                        'label_preds': top_labels,
+                                        'iou_scores': iou_scores if iou_preds is not None else None,}
             else:
                 dtype = batch_reg_preds.dtype
-                # box_ndim = (self.box_n_dim + 2 if self.bev_only else self.box_n_dim)
-                predictions_dict = {
-                    'box3d_lidar': paddle.zeros(shape=[0, self.box_n_dim], dtype=dtype), 
-                    'scores': paddle.zeros(shape=[0], dtype=dtype), 
-                    'label_preds': paddle.zeros(shape=[0], dtype=top_labels.dtype),
-                    "iou_scores": torch.zeros([0], dtype=dtype, device=device) if iou_preds is not None else None}
+                predictions_dict = {'box3d_lidar': paddle.zeros(shape=[0, self.box_n_dim], dtype=dtype), 
+                                    'scores': paddle.zeros(shape=[0], dtype=dtype), 
+                                    'label_preds': paddle.zeros(shape=[0], dtype=top_labels.dtype),
+                                    "iou_scores": paddle.zeros([0], dtype=dtype) if iou_preds is not None else None}
             predictions_dicts.append(predictions_dict)
         return predictions_dicts
 
@@ -1445,7 +1482,7 @@ class MultiGroupHead(nn.Layer):
                 total_scores = paddle.nn.functional.softmax(x=cls_preds,
                     axis=-1)[(...), 1:]
             if test_cfg.nms.use_rotate_nms:
-                nms_func = rotate_nms_pcdet
+                nms_func = rotate_nms
             else:
                 nms_func = nms
             feature_map_size_prod = batch_reg_preds.shape[1] // self.num_anchor_per_locs[task_id]
@@ -1596,33 +1633,31 @@ class MultiGroupHead(nn.Layer):
             predictions_dicts.append(predictions_dict)
         return predictions_dicts
 
-    def nms_for_groups(self, test_cfg, nms_groups, box3d_lidar, scores,
-                        iou_scores,
-                        label_preds):
-        group_nms_pre_max_size = test_cfg.nms.get('group_nms_pre_max_size', [])
-        group_nms_post_max_size = test_cfg.nms.get('group_nms_post_max_size', [])
-        group_nms_iou_threshold = test_cfg.nms.get('group_nms_iou_threshold', [])
-        # add_iou_edge = test_cfg.nms.get('add_iou_edge', 1.0)
-        add_iou_edge = test_cfg.nms.get('add_iou_edge', 0.0)
-
+    def nms_for_groups(self, test_cfg, nms_groups, box3d_lidar, scores, iou_scores,
+        label_preds):
+        group_nms_pre_max_size = test_cfg['nms'].get('group_nms_pre_max_size', [])
+        group_nms_post_max_size = test_cfg['nms'].get('group_nms_post_max_size', [])
+        group_nms_iou_threshold = test_cfg['nms'].get('group_nms_iou_threshold', [])
+        add_iou_edge = test_cfg['nms'].get('add_iou_edge', 0.0)
         if len(group_nms_pre_max_size) == 0:
-            group_nms_pre_max_size = [test_cfg.nms.nms_pre_max_size] * len(
+            group_nms_pre_max_size = [test_cfg['nms']['nms_pre_max_size']] * len(
                 nms_groups)
         if len(group_nms_post_max_size) == 0:
-            group_nms_post_max_size = [test_cfg.nms.nms_post_max_size] * len(
+            group_nms_post_max_size = [test_cfg['nms']['nms_post_max_size']] * len(
                 nms_groups)
         if len(group_nms_iou_threshold) == 0:
-            group_nms_iou_threshold = [test_cfg.nms.nms_iou_threshold] * len(
+            group_nms_iou_threshold = [test_cfg['nms']['nms_iou_threshold']] * len(
                 nms_groups)
         assert len(group_nms_pre_max_size) == len(nms_groups)
         assert len(group_nms_post_max_size) == len(nms_groups)
         assert len(group_nms_iou_threshold) == len(nms_groups)
-        if test_cfg.nms.use_rotate_nms:
-            nms_func = rotate_nms_pcdet
+        if test_cfg['nms']['use_rotate_nms']:
+            nms_func = rotate_nms
         else:
             nms_func = nms
-        boxes_for_nms = box3d_lidar[:, ([0, 1, 3, 4, -1])]
-        if not test_cfg.nms.use_rotate_nms:
+        boxes_for_nms = paddle.concat([box3d_lidar[:, 0:2], box3d_lidar[:, 3:5], box3d_lidar[:, -1:]], axis=1)
+        # boxes_for_nms = box3d_lidar[:, ([0, 1, 3, 4, -1])]
+        if not test_cfg['nms']['use_rotate_nms']:
             box_preds_corners = center_to_corner_box2d(boxes_for_nms[:, :2], 
                                                     boxes_for_nms[:, 2:4], 
                                                     boxes_for_nms[:, (4)])
@@ -1634,16 +1669,17 @@ class MultiGroupHead(nn.Layer):
             mask = label_preds == nms_group[0]
             for label_id in nms_group:
                 mask |= label_preds == label_id
-            indices = paddle.nonzero(x=mask, as_tuple=True)[0]
+            indices = paddle.nonzero(x=mask, as_tuple=True)[0].squeeze(-1)
             if indices.shape[0] != 0:
-                group_boxes_for_nms = boxes_for_nms[indices]
-                group_scores = scores[indices]
-
-                group_iou_scores = iou_scores[indices] if iou_scores is not None else None
+                # group_boxes_for_nms = boxes_for_nms[indices]
+                # group_scores = scores[indices]
+                # group_iou_scores = iou_scores[indices] if iou_scores is not None else None
+                group_boxes_for_nms = paddle.index_select(boxes_for_nms, indices, axis=0)
+                group_scores = paddle.index_select(scores, indices, axis=0)
+                group_iou_scores = paddle.index_select(iou_scores, indices, axis=0) if iou_scores is not None else None
                 if group_iou_scores is not None:
                     group_scores = group_scores * group_iou_scores
                     #group_scores = group_iou_scores
-
                 selected = nms_func(group_boxes_for_nms, group_scores,
                     pre_max_size=group_nms_pre_max_size[group_id],
                     post_max_size=group_nms_post_max_size[group_id],
@@ -1657,16 +1693,10 @@ class MultiGroupHead(nn.Layer):
                 label_preds = label_preds[selecteds]
                 scores = scores[selecteds]
                 iou_scores = iou_scores[selecteds] if iou_scores is not None else None
-
         return box3d_lidar, scores, iou_scores, label_preds
 
-    def nms_overlap_for_groups(self, 
-                                test_cfg, 
-                                nms_overlap_groups,
-                                box3d_lidar, 
-                                scores, 
-                                iou_scores,
-                                label_preds):
+    def nms_overlap_for_groups(self, test_cfg, nms_overlap_groups,
+        box3d_lidar, scores, iou_scores, label_preds):
         group_nms_overlap_pre_max_size = test_cfg.nms.get(
             'group_nms_overlap_pre_max_size', [])
         group_nms_overlap_post_max_size = test_cfg.nms.get(
@@ -1702,14 +1732,13 @@ class MultiGroupHead(nn.Layer):
             mask = label_preds == nms_group[0]
             for label_id in nms_group:
                 mask |= label_preds == label_id
-            indices = paddle.nonzero(x=mask, as_tuple=True)[0]
+            indices = paddle.nonzero(x=mask, as_tuple=True)[0].squeeze(-1)
             if indices.shape[0] != 0:
                 group_boxes_for_nms = boxes_for_nms[indices]
                 group_scores = scores[indices]
-
                 group_iou_scores = iou_scores[indices] if iou_scores is not None else None
                 if group_iou_scores is not None:
-                    group_scores = group_scores * group_iou_scores
+                    group_scores = group_scores * group_iou_scores                
 
                 selected = nms_overlap_func(group_boxes_for_nms,
                     group_scores, pre_max_size = group_nms_overlap_pre_max_size[group_id],
@@ -1726,12 +1755,7 @@ class MultiGroupHead(nn.Layer):
                 iou_scores = iou_scores[selecteds] if iou_scores is not None else None
         return box3d_lidar, scores, iou_scores, label_preds
 
-
-
-'''
-# TODO torch get_proposal_for_rcnn 8A
-    @torch.no_grad()
-	
+    @paddle.no_grad()
     def get_proposal_for_rcnn(self, 
                 cls_scores,
                 bbox_preds,
@@ -1760,22 +1784,21 @@ class MultiGroupHead(nn.Layer):
         """
         featmap_sizes = np.array(self.grid_size)[:2] // self.downsample
 
-        device = cls_scores[0].device
         batch_anchors = self.get_anchors(
-            featmap_sizes, input_metas, device=device)
+            featmap_sizes, input_metas)
         batch_size_device = batch_anchors[0].shape[0]
         for i in range(len(cls_scores)):
             if cls_scores[i] is not None:
-                cls_scores[i] = cls_scores[i].permute(0, 2, 3, 1).contiguous()
+                cls_scores[i] = cls_scores[i].transpose([0, 2, 3, 1])
             if bbox_preds[i] is not None:
-                bbox_preds[i] = bbox_preds[i].permute(0, 2, 3, 1).contiguous()
+                bbox_preds[i] = bbox_preds[i].transpose([0, 2, 3, 1])
             if dir_cls_preds[i] is not None:
-                dir_cls_preds[i] = dir_cls_preds[i].permute(0, 2, 3, 1).contiguous()
+                dir_cls_preds[i] = dir_cls_preds[i].transpose([0, 2, 3, 1])
             if iou_preds[i] is not None:
-                iou_preds[i] = iou_preds[i].permute(0, 2, 3, 1).contiguous()
+                iou_preds[i] = iou_preds[i].transpose([0, 2, 3, 1])
 
         
-        anchors_mask = [None for _ in range(len(self.tasks))] 
+        anchors_mask = [None for _ in range(len(self.tasks))]
         if self.assign_cfg:
             anchors_mask = self.assign_target_and_mask(coors, batch_anchors, None, None, bbox_preds, None, None, test_mode=True)
         assert (len(anchors_mask) == len(cls_scores)) or ((len(anchors_mask) == len(cls_scores) + 1))
@@ -1789,15 +1812,15 @@ class MultiGroupHead(nn.Layer):
 
         for task_id, cls_score in enumerate(cls_scores):
             batch_size = batch_anchors[task_id].shape[0]
-            batch_task_anchors = batch_anchors[task_id].view(
-                batch_size, -1, self.box_n_dim
+            batch_task_anchors = batch_anchors[task_id].reshape(
+                [batch_size, -1, self.box_n_dim]
             )
 
             if anchors_mask[task_id] is None:
                 batch_anchors_mask = [None] * batch_size
             else:
-                batch_anchors_mask = anchors_mask[task_id].view(
-                    batch_size, -1
+                batch_anchors_mask = anchors_mask[task_id].reshape(
+                   [batch_size, -1]
                 )
 
             batch_box_preds = bbox_preds[task_id]
@@ -1806,18 +1829,18 @@ class MultiGroupHead(nn.Layer):
             box_ndim = self.box_n_dim
 
             if kwargs.get("mode", False):
-                batch_box_preds_base = batch_box_preds.view(batch_size, -1, box_ndim)
+                batch_box_preds_base = batch_box_preds.reshape([batch_size, -1, box_ndim])
                 batch_box_preds = batch_task_anchors.clone()
                 batch_box_preds[:, :, [0, 1, 3, 4, 6]] = batch_box_preds_base
             else:
-                batch_box_preds = batch_box_preds.view(batch_size, -1, box_ndim)
+                batch_box_preds = batch_box_preds.reshape([batch_size, -1, box_ndim])
 
             num_class_with_bg = self.num_classes[task_id]
 
             if not self.encode_background_as_zeros:
                 num_class_with_bg = self.num_classes[task_id] + 1
 
-            batch_cls_preds = batch_cls_preds.view(batch_size, -1, num_class_with_bg)
+            batch_cls_preds = batch_cls_preds.reshape([batch_size, -1, num_class_with_bg])
 
             batch_reg_preds = self.box_coder.decode(
                 batch_task_anchors, batch_box_preds[:, :, : self.box_coder.code_size]
@@ -1825,7 +1848,7 @@ class MultiGroupHead(nn.Layer):
 
             if self.use_direction_classifier:
                 batch_dir_preds = dir_cls_preds[task_id]
-                batch_dir_preds = batch_dir_preds.view(batch_size, -1, 2)
+                batch_dir_preds = batch_dir_preds.reshape([batch_size, -1, 2])
             else:
                 batch_dir_preds = [None] * batch_size
 
@@ -1836,7 +1859,7 @@ class MultiGroupHead(nn.Layer):
                 batch_iou_preds = [None] * batch_size
 
             if batch_iou_preds[0] is not None:
-                batch_iou_preds = batch_iou_preds.view(batch_size, -1, 1)
+                batch_iou_preds = batch_iou_preds.reshape([batch_size, -1, 1])
 
             if self.use_sub_region_head:
                 cur_class_name = self.class_names[task_id]
@@ -1850,13 +1873,13 @@ class MultiGroupHead(nn.Layer):
                     sub_region_mask = ~sub_region_mask
 
                     # drop the raw_head results which are in sub_region via sub_region_mask
-                    batch_reg_preds = batch_reg_preds[sub_region_mask].reshape(batch_size, -1, 7)
-                    batch_cls_preds = batch_cls_preds[sub_region_mask].reshape(batch_size, -1, 1)
-                    batch_dir_preds = batch_dir_preds[sub_region_mask].reshape(batch_size, -1, 2)
-                    batch_anchors_mask = batch_anchors_mask[sub_region_mask].reshape(batch_size, -1)
+                    batch_reg_preds = batch_reg_preds[sub_region_mask].reshape([batch_size, -1, 7])
+                    batch_cls_preds = batch_cls_preds[sub_region_mask].reshape([batch_size, -1, 1])
+                    batch_dir_preds = batch_dir_preds[sub_region_mask].reshape([batch_size, -1, 2])
+                    batch_anchors_mask = batch_anchors_mask[sub_region_mask].reshape([batch_size, -1])
 
                     if batch_iou_preds[0] is not None:
-                        batch_iou_preds = batch_iou_preds[sub_region_mask].reshape(batch_size, -1, 1)
+                        batch_iou_preds = batch_iou_preds[sub_region_mask].reshape(b[atch_size, -1, 1])
                         out_region_result[cur_class_name[0]] = [batch_reg_preds, batch_cls_preds,
                                                                 batch_dir_preds, batch_anchors_mask, 
                                                                 batch_iou_preds]
@@ -1885,17 +1908,17 @@ class MultiGroupHead(nn.Layer):
                 # reset the task_id and get original class name if out_region_result and sub_region_result is filled by current class
                 if sub_region_result.get(ori_class_name) and out_region_result.get(ori_class_name):
                     # merge sub_region and out_region
-                    batch_reg_preds = torch.cat((out_region_result.get(ori_class_name)[0], 
-                                                 sub_region_result.get(ori_class_name)[0]), dim=1)
-                    batch_cls_preds = torch.cat((out_region_result.get(ori_class_name)[1], 
-                                                 sub_region_result.get(ori_class_name)[1]), dim=1)
-                    batch_dir_preds = torch.cat((out_region_result.get(ori_class_name)[2], 
-                                                 sub_region_result.get(ori_class_name)[2]), dim=1)
-                    batch_anchors_mask = torch.cat((out_region_result.get(ori_class_name)[3], 
-                                                    sub_region_result.get(ori_class_name)[3]), dim=1)
+                    batch_reg_preds = paddle.concat((out_region_result.get(ori_class_name)[0], 
+                                                 sub_region_result.get(ori_class_name)[0]), axis=1)
+                    batch_cls_preds = paddle.concat((out_region_result.get(ori_class_name)[1], 
+                                                 sub_region_result.get(ori_class_name)[1]), axis=1)
+                    batch_dir_preds = paddle.concat((out_region_result.get(ori_class_name)[2], 
+                                                 sub_region_result.get(ori_class_name)[2]), axis=1)
+                    batch_anchors_mask = paddle.concat((out_region_result.get(ori_class_name)[3], 
+                                                    sub_region_result.get(ori_class_name)[3]), axis=1)
                     if batch_iou_preds[0] is not None:
-                        batch_iou_preds = torch.cat((out_region_result.get(ori_class_name)[4], 
-                                                    sub_region_result.get(ori_class_name)[4]), dim=1)
+                        batch_iou_preds = paddle.concat((out_region_result.get(ori_class_name)[4], 
+                                                    sub_region_result.get(ori_class_name)[4]), axis=1)
 
             rets.append(
                 self.get_task_detections(
@@ -1908,7 +1931,7 @@ class MultiGroupHead(nn.Layer):
                     batch_iou_preds,
                     batch_anchors_mask
                 )
-            )            
+            )          
         if ['pedestrian_sub'] in self.class_names and ['verybigMot'] in self.class_names:
             if self.class_names.index(['pedestrian_sub']) > self.class_names.index(['verybigMot']):
                 ped_pred = rets[5]
@@ -1954,7 +1977,7 @@ class MultiGroupHead(nn.Layer):
             for k in rets[0][i].keys():
                 if k in ["box3d_lidar", "scores", "iou_scores"]:
                     if rets[0][i][k] is not None:
-                        ret[k] = torch.cat([ret[i][k] for ret in rets])
+                        ret[k] = cat([ret[i][k] for ret in rets])
                     else:
                         ret[k] = None
                 elif k in ["label_preds"]:
@@ -1962,7 +1985,7 @@ class MultiGroupHead(nn.Layer):
                     for j, (cls_name,cls_id) in enumerate(ori_class_name_map.items()):
                        
                         rets[j][i][k] += cls_id  # recover class id, such as 4th class
-                    ret[k] = torch.cat([ret[i][k] for ret in rets])
+                    ret[k] = cat([ret[i][k] for ret in rets])
                 elif k == "metadata":
                     # metadata
                     ret[k] = rets[0][i][k]
@@ -1970,7 +1993,7 @@ class MultiGroupHead(nn.Layer):
 
         
         proposal_list = []
-        nms_groups = test_cfg.nms.get('nms_groups', [])
+        nms_groups = test_cfg['nms'].get('nms_groups', [])
         if len(nms_groups) != 0:
             # change class names in nms_group to id
             if not isinstance(nms_groups[0][0], int):
@@ -2000,6 +2023,7 @@ class MultiGroupHead(nn.Layer):
                     proposal_dict['rois'] = box3d_lidar
                     proposal_dict['roi_scores'] = scores
                     proposal_dict['roi_labels'] = label_preds
+                
                 proposal_list.append(proposal_dict)
         
         if 'accessory_main' in ori_class_name_map:
@@ -2008,6 +2032,7 @@ class MultiGroupHead(nn.Layer):
                 if ret['rois'].shape[0] == 0:
                     continue
                 no_head_inds = ret['roi_labels'] != ori_class_name_map['accessory_main']
+                
                 rois = ret['rois'][no_head_inds]
                 roi_scores = ret['roi_scores'][no_head_inds]
                 roi_labels = ret['roi_labels'][no_head_inds]
@@ -2025,24 +2050,32 @@ class MultiGroupHead(nn.Layer):
                 if head_boxes.shape[0] == 0:
                     continue
 
-                head_scores_matrix = head_scores.repeat(bigmot_boxes.size(0), 1)
+                head_scores_matrix = head_scores.unsqueeze(0).repeat_interleave(bigmot_boxes.shape[0], 0)
                 bev_iom = iou3d_utils.boxes_iom_bev(bigmot_boxes, head_boxes)
-                neg_head_inds = bev_iom <= 0.5
-                head_scores_matrix[neg_head_inds] = -1
-                neg_head_inds = head_scores_matrix <= 0.2
-                head_scores_matrix[neg_head_inds] = -1
+                head_scores_matrix = paddle.where(bev_iom <= 0.5, 
+                                                -1*paddle.ones_like(head_scores_matrix), 
+                                                head_scores_matrix)
+                head_scores_matrix = paddle.where(head_scores_matrix <= 0.2, 
+                                                -1*paddle.ones_like(head_scores_matrix), 
+                                                head_scores_matrix)
 
-                combo_uid = head_scores_matrix.max(1)[1]
-                combo_uid[head_scores_matrix.max(1)[0] < 0] = -1
-                valid_head_inds = combo_uid[combo_uid>=0]
-                head_boxes = head_boxes[valid_head_inds]
-                head_scores = head_scores[valid_head_inds]
-                head_labels = head_labels[valid_head_inds]
-                proposal_list[i]['rois'] = torch.cat([rois, head_boxes],dim=0)
-                proposal_list[i]['roi_scores'] = torch.cat([roi_scores, head_scores],dim=0)
-                proposal_list[i]['roi_labels'] = torch.cat([roi_labels, head_labels],dim=0)
+                if head_scores_matrix.max()>0:
+                    combo_uid = head_scores_matrix.argmax(1)
+                    combo_uid_index = paddle.nonzero(head_scores_matrix.max(1)>0).squeeze(-1)
+                    valid_head_inds = paddle.index_select(combo_uid, combo_uid_index, axis=0)
+                    head_boxes = paddle.index_select(head_boxes, valid_head_inds, axis=0)
+                    head_scores = paddle.index_select(head_scores, valid_head_inds, axis=0)
+                    head_labels = paddle.index_select(head_labels, valid_head_inds, axis=0)
+                    proposal_list[i]['rois'] = paddle.concat([rois, head_boxes], axis=0)
+                    proposal_list[i]['roi_scores'] = paddle.concat([roi_scores, head_scores], axis=0)
+                    proposal_list[i]['roi_labels'] = paddle.concat([roi_labels, head_labels], axis=0)
+                else:
+                    proposal_list[i]['rois'] = rois
+                    proposal_list[i]['roi_scores'] = roi_scores
+                    proposal_list[i]['roi_labels'] = roi_labels
+                
         # for i, ret in enumerate(proposal_list):
-        #     unique_value, unique_counts = torch.unique(proposal_list[i]['roi_labels'], return_counts=True)
+        #     unique_value, unique_counts = paddle.unique(proposal_list[i]['roi_labels'], return_counts=True)
         #     print("unique_value {} unique_counts {}".format(unique_value, unique_counts))
         if roi_regions is not None:
             for batch_id in range(batch_size):  #rcnn阶段只考虑标注区域内的proposal
@@ -2051,9 +2084,9 @@ class MultiGroupHead(nn.Layer):
                 roi_labels = proposal_list[batch_id]['roi_labels']
                 if rois.shape[0] == 0:
                     continue
-                mask = torch.zeros_like(rois[:, 0], dtype=torch.bool)
+                mask = paddle.zeros_like(rois[:, 0]).cast('bool')
                 regions = roi_regions[batch_id]
-                xy_a = rois[:, [0, 1]]
+                xy_a = rois[:, 0:2]
                 regions_ = []
                 for region in regions:
                     if region['type'] == 2:
@@ -2066,56 +2099,53 @@ class MultiGroupHead(nn.Layer):
                             center_xf = region['region'][0]
                             center_yf = region['region'][1]
                             radius = region['region'][3]
-                            center = torch.tensor(
+                            center = paddle.to_tensor(
                                 [center_xf, center_yf],
-                                dtype=rois.dtype,
-                                device=rois.device).view(-1, 2)
-                            dist = torch.norm(xy_a - center, p=2, dim=1)
+                                dtype=rois.dtype).reshape([-1, 2])
+                            dist = paddle.linalg.norm(xy_a - center, p=2, axis=1)
                             mask[dist <= radius] = True
                         
                 proposal_list[batch_id]['rois'] = rois[mask]
                 proposal_list[batch_id]['roi_scores'] = roi_scores[mask]
-                proposal_list[batch_id]['roi_labels'] = roi_labels[mask]
+                proposal_list[batch_id]['roi_labels'] = roi_labels[mask]         
         
         
         gt_aug_factor = test_cfg.get("gt_aug_factor", [1, 1, 1, 1, 1, 1])  # 每个类的增加倍数
         for batch_id in range(len(proposal_list)):
             ret = proposal_list[batch_id]
-            valid_mask = (ret["rois"][:, 3:6] > 1e-5).all(dim=1)
-            ret["rois"] = ret["rois"][valid_mask]
-            # if self.roi_aug:
-            #     ret['rois'] = noise_gt_bboxes_(ret['rois'].unsqueeze(0)).squeeze(0)
-            ret["roi_scores"] = ret["roi_scores"][valid_mask]
-            ret["roi_labels"] = ret["roi_labels"][valid_mask]
+            if ret["rois"].shape[0]>0:
+                valid_mask = (ret["rois"][:, 3:6] > 1e-5).all(axis=1)
+                ret["rois"] = ret["rois"][valid_mask]
+                # if self.roi_aug:
+                #     ret['rois'] = noise_gt_bboxes_(ret['rois'].unsqueeze(0)).squeeze(0)
+                ret["roi_scores"] = ret["roi_scores"][valid_mask]
+                ret["roi_labels"] = ret["roi_labels"][valid_mask]
             # print("mghead training ", self.training)
-            # if ret["rois"].shape[0] > test_cfg.nms.nms_post_max_size and self.training:
+            # if ret["rois"].shape[0] > test_cfg['nms']['nms_post_max_size'] and self.training:
             #     topk_idx = ret["roi_scores"].topk(
-            #         test_cfg.nms.nms_post_max_size, dim=0)[1].view(-1)
+            #         test_cfg['nms']['nms_post_max_size'], dim=0)[1].view(-1)
             #     ret["rois"] = ret["rois"][topk_idx]
             #     ret["roi_scores"] = ret["roi_scores"][topk_idx]
             #     ret["roi_labels"] = ret["roi_labels"][topk_idx]
-            if test_cfg.use_gt_boxes:
+            if test_cfg['use_gt_boxes']:
                 assert gt_boxes is not None
                 # mask = (gt_classes[batch_id] > 0)
-                cur_gt_boxes = gt_boxes[batch_id].tensor.clone().to(device)
+                cur_gt_boxes = gt_boxes[batch_id].clone()
                 cur_gt_labels = gt_labels[batch_id].clone()
                 cur_gt_labels[cur_gt_labels==5] = 2 #合并verybigmot和bigmot
                 cur_gt_labels[cur_gt_labels==7] = 5 # 重映射accessory_main 7-->5
                 
-                # mask = torch.zeros_like(gt_cls_list[batch_id]).bool()
-                for cls_id in test_cfg.gt_classes:
+                for cls_id in test_cfg['gt_classes']:
                     mask = cur_gt_labels == cls_id
                     aug_factor = gt_aug_factor[cls_id]
-                    extra_rois = cur_gt_boxes[mask].repeat(aug_factor, 1)
-                    extra_roi_labels = cur_gt_labels[mask].repeat(aug_factor)
-                    extra_roi_scores = extra_rois.new_ones((extra_rois.shape[0],)) * 0.01
+                    extra_rois = cur_gt_boxes[mask].repeat_interleave(aug_factor, 0)
+                    extra_roi_labels = cur_gt_labels[mask].repeat_interleave(aug_factor, 0)
+                    extra_roi_scores = paddle.ones((extra_rois.shape[0],), dtype=extra_rois.dtype) * 0.01
                     extra_rois = noise_gt_bboxesv2_(extra_rois)
-                    ret["rois"] = torch.cat([extra_rois, ret["rois"]], dim=0)
-                    ret["roi_scores"] = torch.cat([extra_roi_scores, ret["roi_scores"]], dim=0)
-                    ret["roi_labels"] = torch.cat([extra_roi_labels, ret["roi_labels"]], dim=0)
+                    ret["rois"] = cat([extra_rois, ret["rois"]], axis=0)
+                    ret["roi_scores"] = cat([extra_roi_scores, ret["roi_scores"]], axis=0)
+                    ret["roi_labels"] = cat([extra_roi_labels, ret["roi_labels"]], axis=0)
                 # ret['roi_is_gt'] = ret['roi_is_gt'][topk_idx]
-            proposal_list[batch_id] = ret
+            proposal_list[batch_id] = ret        
         
         return proposal_list
-
-'''

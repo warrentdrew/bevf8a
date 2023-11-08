@@ -1,0 +1,663 @@
+batch_size: 1 # 8 gpu
+epochs: 40 
+
+
+train_dataset:
+  type: AT128Dataset
+  data_root: ./data
+  use_valid_flag: False
+  with_velocity: False
+  use_bbox_used_in_mainline: False
+  # ann_file: ./data/hesai90/hesai90_train_5b_34scenes_dynamic_all_types_with_2d_and_roi_data.pkl
+  # ann_file: ./data/hesai90/hesai90_train_123905.pkl
+  ann_file: data/hesai90/hesai90_train_8a_40_scenes_173474_downsample_7x_20k.pkl
+  classes: ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main', 'OnlyBicycle', 'fog', 'spike']
+  modality: 
+    use_lidar: True
+    use_camera: True
+    use_radar: False
+    use_map: False
+    use_external: False
+  test_mode: False
+  box_type_3d: 'LiDAR'
+  pipeline:
+    - type: LoadPointsFromZipFile
+      coord_type: 'LIDAR'
+      load_dim: 4
+      use_dim: 4
+    - type: LoadAnnotations3D
+      with_bbox_3d: True
+      with_label_3d: True
+      with_name_3d: True
+      with_weakly_roi: true
+      classes: [
+                'TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main',
+                'OnlyBicycle', 'fog', 'spike'
+                ]
+    - type: ObjectSample
+      db_sampler:
+        type: DataBaseSampler
+        data_root: ./data/hesai90/90p_bg_infos_8a_35scenes/
+        info_path: ./data/hesai90/90p_bg_infos_8a_35scenes/90p_bg_infos_8a_35scenes_bg_types_vru.pkl
+        rate: [1.0, 1.0, 1.0, 0.3, 0.3]
+        prepare:
+          filter_by_min_points:
+            OnlyBicycle: 5
+            fog: 8
+            spike: 5
+            nonMot: 40
+            pedestrian: 25
+        classes: ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main', 'OnlyBicycle', 'fog', 'spike']
+        sample_groups: 
+          OnlyBicycle: 4
+          fog: 5
+          spike: 3
+          nonMot: 1
+          pedestrian: 1
+        points_loader:
+          type: LoadPointsFromFile
+          load_dim: 4
+          use_dim: 4
+    - type: GlobalRotScaleTrans
+      rot_range: [-0.3925, 0.3925]
+      scale_ratio_range: [1.0, 1.0]
+      translation_std: [0, 0, 0]
+    - type: RandomFlip3D
+      flip_ratio_bev_horizontal: 0.5
+    - type: PointsRangeFilter
+      point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    - type: SampleRangeFilter 
+      point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    - type: SampleNameFilter  
+      classes: [
+                'TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main',
+                'OnlyBicycle', 'fog', 'spike'
+                ]
+    - type: PointShuffle
+    - type: CalculateBEVRegion
+      vis_range: [-120, -120, -3, 120, 120, 2]
+      vis_voxel_size: [0.2083, 0.2083, 1.25]
+    - type: CalculateGTBoxVisibleBorders
+    - type: DefaultFormatBundle3D
+      class_names: [
+                'TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main',
+                'OnlyBicycle', 'fog', 'spike'
+                ]
+    - type: SampleFilterByKey
+      # keys: ['points', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_border_masks']
+      keys: ['points', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_border_masks', 'roi_regions']
+
+  eval_configs: 
+    class_range:
+      TrainedOthers: 150
+      pedestrian: 150
+      bigMot: 150
+      smallMot: 150
+      nonMot: 150
+    distances: [[0, 30], [30, 60], [60, 90], [90, 120]]
+    rel_dist_fcn: 'relative_center_distance'
+    rel_dist_th_tp: 0.1
+    ab_dist_th_tp: 1.5
+    iou_th_hard_tp: 0.5
+    iou_th_easy_tp: 0.2
+    rel_ab_th: 30
+    iou_type: 'geo_iou'
+    iou_matrix_path: 'piou_matrix.pkl'
+    geo_iou_type: 'bev_iou'
+    min_recall: 0.0
+    min_precision: 0.0
+    max_boxes_per_sample: 1000
+    ignore_gt_valid: True
+    score_thr: 0.1
+    fuse_mot: False
+    cross_cls_match: False
+    score_first: False
+    dist_type: 'geo_dist'
+    pts_dist_path: 'dist_infos.pkl'
+    render_curves: False
+    metric: ['lidar']
+  
+val_dataset:
+  type: AT128Dataset
+  data_root: ./data
+  use_valid_flag: False 
+  with_velocity: False
+  use_bbox_used_in_mainline: False
+  ann_file: ./data/hesai90/hesai90_test_5013_beijing.pkl
+  classes:  ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main']
+  modality: 
+    use_lidar: True
+    use_camera: True
+    use_radar: False
+    use_map: False
+    use_external: False
+  test_mode: True
+  box_type_3d: 'LiDAR'
+  pipeline:
+    - type: LoadPointsFromZipFile
+      coord_type: 'LIDAR'
+      load_dim: 4
+      use_dim: 4
+    - type: MultiScaleFlipAug3D
+      img_scale: (1333, 800) 
+      pts_scale_ratio: 1
+      flip: False
+      transforms:
+        - type: GlobalRotScaleTrans
+          rot_range: [0, 0]
+          scale_ratio_range: [1., 1.]
+          translation_std: [0, 0, 0]
+        - type: RandomFlip3D
+        - type: PointsRangeFilter
+          point_cloud_range: [-120, -120, -5, 120, 120, 5]
+        - type: DefaultFormatBundle3D
+          class_names: ['TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 'verybigMot', 'pedestrian_sub', 'accessory_main']
+          with_label: False
+        - type: SampleFilterByKey
+          keys: ['points']
+  eval_configs: 
+    class_range:
+      TrainedOthers: 150
+      pedestrian: 150
+      bigMot: 150
+      smallMot: 150
+      nonMot: 150
+    distances: [[0, 30], [30, 60], [60, 90], [90, 120]]
+    rel_dist_fcn: 'relative_center_distance'
+    rel_dist_th_tp: 0.1
+    ab_dist_th_tp: 1.5
+    iou_th_hard_tp: 0.5
+    iou_th_easy_tp: 0.2
+    rel_ab_th: 30
+    iou_type: 'geo_iou'
+    iou_matrix_path: 'piou_matrix.pkl'
+    geo_iou_type: 'bev_iou'
+    min_recall: 0.0
+    min_precision: 0.0
+    max_boxes_per_sample: 1000
+    ignore_gt_valid: True
+    score_thr: 0.1
+    fuse_mot: False
+    cross_cls_match: False
+    score_first: False
+    dist_type: 'geo_dist'
+    pts_dist_path: 'dist_infos.pkl'
+    render_curves: False
+    metric: ['lidar']
+
+
+
+model:
+  type: DynamicMVXFasterRCNN
+  sync_bn: False
+  pts_voxel_layer:
+    max_num_points: -1
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10]
+    max_voxels: [-1, -1]
+  bev_feature_layer:
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10]
+    cnnseg_feature_dim: 6
+    compute_logodds_cfg:
+      vis_range: [-120, -120, -3, 120, 120, 2]
+      vis_voxel_size: [0.2083, 0.2083, 1.25]
+      compute_logodds: True
+
+  pts_voxel_encoder:
+    type: DynamicPillarFeatureNet
+    in_channels: 4
+    feat_channels: [64,]
+    with_distance: False
+    with_cluster_center: True
+    with_voxel_center: True
+    voxel_size: [0.2083, 0.2083, 10]
+    point_cloud_range: [-120, -120, -5, 120, 120, 5]
+    norm_cfg: 
+      type_name: BN1d
+      epsilon: 0.001
+      momentum: 0.99 
+      requires_grad: True
+    mode: max
+    legacy: False
+    input_norm: True
+    
+  pts_middle_encoder:
+    type: PointPillarsScatterExpandVisV2
+    num_input_features: 64
+    input_expand_filters: 10
+    expand_filters: 64
+    norm_cfg: 
+      type_name: BN 
+      epsilon: 0.00001 
+      momentum: 0.99
+      requires_grad: True
+    remove_intensity: False
+  pts_neck:
+    type: HighResolutionNet
+    ds_layer_strides: [2, 2, 2, 2]
+    us_layer_strides: [1, 2, 4, 8]
+    num_input_features: 64
+    num_inner_features: 64
+    num_output_features: 121 
+    pretrained: null
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.00001
+      momentum: 0.99
+      requires_grad: True
+    extra:
+      stage1:
+        num_modules: 1
+        num_branches: 1
+        block: BOTTLENECK
+        num_blocks: [2,]
+        num_channels: [64,]
+        fuse_method: SUM
+      stage2:
+        num_modules: 1
+        num_branches: 2
+        block: BASIC
+        num_blocks: [2, 2]
+        num_channels: [18, 32]
+        fuse_method: SUM
+      stage3:
+        num_modules: 1
+        num_branches: 3
+        block: BASIC
+        num_blocks: [2, 2, 2]
+        num_channels: [18, 32, 64]
+        fuse_method: SUM
+      stage4:
+        num_modules: 1
+        num_branches: 4
+        block: BASIC
+        num_blocks: [2, 2, 2, 2]
+        num_channels: [18, 32, 64, 128]
+        fuse_method: SUM
+  pts_bbox_head:
+    type: MultiGroupHead
+    mode: 3d
+    in_channels: 121 
+    ds_head_filters: [128, 64, 64]
+    ds_head_strides: [2, 0.5, 1]
+    verybigMot_index: [0, 0, 1]
+    # head_layer_index: [0, 1, 3, 0, 0, 3, 2]
+    head_layer_index: [0, 1, 3, 0, 0, 3, 2, 3]
+    # num_anchor_per_locs: [1, 4, 4, 2, 1, 4, 1]
+    num_anchor_per_locs: [1, 4, 4, 2, 1, 4, 1, 4]
+    use_bigMot_subhead: True
+    voxel_size: [0.2083, 0.2083, 10]
+    downsample: 2
+    grid_size: [1152, 1152, 1]
+    pc_range: [-120, -120, -5, 120, 120, 5]
+    assign_cfg: 
+      tasks:
+        - num_class: 1
+          class_names: ["TrainedOthers"]
+        - num_class: 1
+          class_names: ["smallMot"]
+        - num_class: 1
+          class_names: ["bigMot"]
+        - num_class: 1
+          class_names: ["nonMot"]
+        - num_class: 1
+          class_names: ["pedestrian"]
+        - num_class: 1
+          class_names: ["verybigMot"]
+        - num_class: 1
+          class_names: ["pedestrian_sub"]
+        - num_class: 1
+          class_names: ["accessory_main"]
+
+      sample_positive_fraction: -1
+      sample_size: 512
+      bbox_coder:
+        type_name: DeltaXYZWLHRBBoxCoderIDG
+        code_size: 7
+        use_bbox_used_in_mainline: False
+      target_assigners:
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.3
+          class_name: TrainedOthers
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.45
+          class_name: smallMot
+          region_similarity_calculator: 
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: bigMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.4
+          unmatched_threshold: 0.2
+          class_name: nonMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.92
+          unmatched_threshold: 0.77
+          class_name: pedestrian
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: verybigMot
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.98
+          unmatched_threshold: 0.83
+          class_name: pedestrian_sub
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+        - matched_threshold: 0.6
+          unmatched_threshold: 0.4
+          class_name: accessory_main
+          region_similarity_calculator:
+            type_name: nearest_iou_similarity
+
+
+      quantize: -1
+      use_anchor_mask: True
+      near_bcpts: False
+      pc_range: [-120, -120, -5, 120, 120, 5]
+      voxel_size: [0.2083, 0.2083, 10]
+      num_anchor_per_locs_by_class: [[1],[4],[4],[2],[1],[4],[1],[4]]
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.001
+      momentum: 0.99 
+      requires_grad: True
+    tasks:
+      - num_class: 1
+        class_names: ['TrainedOthers']
+      - num_class: 1
+        class_names: ["smallMot"]
+      - num_class: 1
+        class_names: ["bigMot"]
+      - num_class: 1
+        class_names: ["nonMot"]
+      - num_class: 1
+        class_names: ["pedestrian"]
+      - num_class: 1
+        class_names: ["verybigMot"]
+      - num_class: 1
+        class_names: ["pedestrian_sub"]
+      - num_class: 1
+        class_names: ["accessory_main"]
+      
+    weights: [1,]
+    bbox_coder:
+      type_name: DeltaXYZWLHRBBoxCoderIDG
+      code_size: 7
+      use_bbox_used_in_mainline: False
+    encode_background_as_zeros: True
+    anchor_cfg:
+      anchor_generators:
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.3946, 0.3957, 0.7657]] # wlh,
+          ranges: [[-120, -120, -2.0920, 120, 120, -2.0920]]
+          rotations: [0.0]
+          out_downsample_size: 1
+          # class_name: "TrainedOthers"
+          
+        - type_name: AlignedAnchor3DRangeGenerator
+          sizes: [[1.8582, 4.2488, 1.5632], [2.1340, 4.6585, 1.7840]] # wlh
+          ranges: [[-120, -120, -1.9342, 120, 120, -1.9342]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2
+          # class_name: "smallMot"
+
+        - type_name: AlignedAnchor3DRangeGenerator
+          sizes: [[3.0111, 9.6663, 3.3182], [2.0855, 5.0784, 2.1013]] #wlh
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2
+          # class_name: "bigMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.8480, 1.9163, 1.4149]]
+          ranges: [[-120, -120, -1.9851, 120, 120, -1.9851]]
+          rotations: [0, 1.57]
+          out_downsample_size: 1
+          # class_name: "nonMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.6753, 0.6589, 1.6715]]
+          ranges: [[-120, -120, -1.8941, 120, 120, -1.8941]]
+          rotations: [0.0]
+          out_downsample_size: 1
+          # class_name: "pedestrian"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[3.4311, 18.2966, 4.1296], [3.0436, 11.7372, 3.4212]]
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2
+          # class_name: "verybigMot"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.6431, 0.5721, 1.3665]]
+          ranges: [[0, -30, -1.0468, 60, 30, -1.0468]]
+          rotations: [0.0]
+          out_downsample_size: 2
+          # class_name: "pedestrian_sub"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[3.101, 7.5727, 3.7635], [2.8044, 4.9681, 3.3286]]
+          ranges: [[-120, -120, -2.0971, 120, 120, -2.0971]]
+          rotations: [0, 1.57]
+          out_downsample_size: 2
+          # class_name: "accessory_main"
+
+        - type_name: "AlignedAnchor3DRangeGenerator"
+          sizes: [[0.8480, 1.9163, 1.4149]]
+          ranges: [[-120, -120, -1.2777, 120, 120, -1.2777]]
+          rotations: [0, 1.57]
+          out_downsample_size: 1
+          # class_name: "OnlyBicycle"
+      tasks:
+        - num_class: 1
+          class_names: ['TrainedOthers']
+        - num_class: 1
+          class_names: ["smallMot"]
+        - num_class: 1
+          class_names: ["bigMot"]
+        - num_class: 1
+          class_names: ["nonMot"]
+        - num_class: 1
+          class_names: ["pedestrian"]
+
+        - num_class: 1
+          class_names: ["verybigMot"]
+        - num_class: 1
+          class_names: ["pedestrian_sub"]
+        - num_class: 1
+          class_names: ["accessory_main"]
+        - num_class: 1
+          class_names: ["OnlyBicycle", "fog", "spike"]
+
+
+    anchor_bctps: 
+      mode: True
+      near_bcpts: False
+    
+    pred_bctps:
+      mode: True
+      near_bcpts: True
+      only_normal_dir: False
+
+    loss_norm:
+      type_name: NormByNumPositives
+      pos_cls_weight: 2.0
+      neg_cls_weight: 0.5
+    loss_cls:
+      type_name: WeightedSigmoidLoss
+      loss_weight: 1.0
+    use_sigmoid_score: True
+    loss_bbox:
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      codewise: True
+      loss_weight: 1.0
+
+    loss_anchor_bctps:
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      codewise: True
+      loss_weight: 1.0
+      weights_unsqueeze: False
+
+    loss_pred_bctps:
+      type_name: WeightedSmoothL1LossIDG
+      sigma: 3.0
+      codewise: True
+      loss_weight: [1, 1, 1, 1, 1, 1, 1, 1]
+      weights_unsqueeze: False
+    
+    encode_rad_error_by_sin: True
+    loss_aux:
+      type_name: WeightedSoftmaxClassificationLossIDG
+      name: direction_classifier
+      task_loss_aux_weight: [0, 1.0, 1.0, 1.0, 0, 1.0, 0, 1.0]
+      loss_weight: 0.5
+    direction_offset: 0.0
+    bg_iof_threshold: 0.1
+    fg_iof_threshold: 0.5
+    bg_cls_loss_weight: 1
+    use_sub_region_head: True
+    sub_region_attr:
+      sub_region_postfix: _sub
+      sub_region_class: [['pedestrian'], ]
+      sub_region_head_index: [1]
+      sub_region_range: [[0, 60], [-30, 30]]
+      full_region_range: [[-120, 120], [-120, 120]]
+
+  pts_roi_head:
+    type: "ConfidenceHead"
+    mode: "3d"
+    in_channels: 121 
+    norm_cfg:
+      type_name: BN
+      epsilon: 0.001
+      momentum: 0.99 
+      requires_grad: True
+    tasks:
+      - num_class: 1
+        class_names: ['TrainedOthers']
+      - num_class: 1
+        class_names: ["smallMot"]
+      - num_class: 1
+        class_names: ["bigMot"]
+      - num_class: 1
+        class_names: ["nonMot"]
+      - num_class: 1
+        class_names: ["pedestrian"]
+
+      - num_class: 1
+        class_names: ["verybigMot"]
+      - num_class: 1
+        class_names: ["pedestrian_sub"]
+      - num_class: 1
+        class_names: ["accessory_main"]
+
+    weights: [1,]
+    bbox_coder:
+      type_name: DeltaXYZWLHRBBoxCoderIDG
+      code_size: 7
+      use_bbox_used_in_mainline: False
+
+    encode_background_as_zeros: True
+
+    loss_cls:
+      type_name: CrossEntropyLossIDG
+      use_sigmoid: True
+      loss_weight: 1.0
+
+    loss_norm:
+      type_name: NormByNumPoints
+
+    use_sigmoid_score: True
+    use_direction_classifier: True
+    pc_range: [-120, -120, -5, 120, 120, 5]
+    voxel_size: [0.2083, 0.2083, 10]
+
+    grid_size: [1152, 1152, 1]
+    direction_offset: 0.0 
+    rpn_cfg:
+      score_threshold: 0.05
+      nms_pre_max_size: 5000
+      use_nms: 1
+      nms_post_max_size: 2000 
+      nms_iou_threshold: 0.5
+      use_gt_boxes: True
+
+    use_sub_region_head: True
+    sub_region_attr:
+      sub_region_postfix: _sub
+      sub_region_class: [['pedestrian'], ]
+      sub_region_head_index: [1]
+      sub_region_range: [[0, 60], [-30, 30]]
+      full_region_range: [[-120, 120], [-120, 120]]
+
+  need_convert_gt_format: True #it is important, and cannot be removed! 
+  use_bbox_used_in_mainline: False
+  train_cfg:
+    bn_eval: [] #["pts_neck"]
+  test_cfg:
+    nms:
+      use_rotate_nms: False
+      use_rotate_nms_overlap: True
+      use_multi_class_nms: False
+      nms_groups: [['TrainedOthers', 'pedestrian', 'smallMot', 'bigMot', 'nonMot'], ['TrainedOthers']]
+      group_nms_iou_threshold: [0.1, 0.05]
+      add_iou_edge: 0.0
+      nms_overlap_groups: [['TrainedOthers', 'smallMot', 'bigMot', 'pedestrian', 'nonMot']]
+      group_nms_overlap_iou_threshold: [0.6]
+      nms_pre_max_size: 5000
+      nms_post_max_size: 1000 
+      nms_iou_threshold: 0.5 
+    use_benchmar_format: False
+    score_threshold: 0.1
+    post_center_limit_range: [-130., -130., -5., 130., 130., 5.]
+    max_per_img: 1000
+  tasks:
+    - num_class: 1
+      class_names: ['TrainedOthers']
+    - num_class: 1
+      class_names: ["smallMot"]
+    - num_class: 1
+      class_names: ["bigMot"]
+    - num_class: 1
+      class_names: ["nonMot"]
+    - num_class: 1
+      class_names: ["pedestrian"]
+    - num_class: 1
+      class_names: ["verybigMot"]
+    - num_class: 1
+      class_names: ["pedestrian_sub"]
+    - num_class: 1
+      class_names: ["accessory_main"]
+    - num_class: 1
+      class_names: ["OnlyBicycle", "fog", "spike"]
+
+
+
+optimizer:
+  type: AdamWOnecycleClipGlobalNorm
+  clip_grad_by_global_norm: 10.0
+  beta1: 0.9
+  beta2: 0.99
+  weight_decay: 0.01
+
+lr_scheduler:
+  type: OneCycle
+  total_step: 150000
+  lr_max: 0.003
+  moms: [0.95, 0.85]
+  div_factor: 10
+  pct_start: 0.4

@@ -178,7 +178,6 @@ class AdamWOnecycleClipGlobalNorm(AdamW):
                  beta2=0.999,
                  clip_grad_by_global_norm=None,
                  parameters=None,
-                 grad_clip=None,
                  **optim_args):
         if clip_grad_by_global_norm is not None:
             grad_clip = paddle.nn.ClipGradByGlobalNorm(clip_norm=clip_grad_by_global_norm)

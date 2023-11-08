@@ -1,0 +1,42 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/include/python3.9"
+    ],
+    "iou3d_nms_cuda.so": "728fc7ca8c34da1389a1975b0d140242",
+    "library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "runtime_library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "sources": [
+        "iou3d_nms/iou3d_cpu.cpp",
+        "iou3d_nms/iou3d_nms_api.cpp",
+        "iou3d_nms/iou3d_nms.cpp",
+        "iou3d_nms/iou3d_nms_kernel.cu"
+    ],
+    "undef_macros": []
+}

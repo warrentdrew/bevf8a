@@ -1,0 +1,41 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-arch=sm_60",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/opt/conda/envs/bevf8a_t2/include/python3.8"
+    ],
+    "library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "ms_deform_attn.so": "1046388f46b126c9a52c52a053bd94af",
+    "runtime_library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "sources": [
+        "ms_deform_attn/ms_deform_attn.cc",
+        "ms_deform_attn/ms_deform_attn.cu"
+    ],
+    "undef_macros": []
+}

@@ -197,27 +197,26 @@ std::vector<paddle::Tensor> dynamic_point_to_voxel_forward_gpu(
   paddle::Tensor fillvalue = paddle::full(coors.shape(), -1, coors.type(), paddle::GPUPlace());
   paddle::Tensor zerotensor = paddle::full(coors.shape(), 0, coors.type(), paddle::GPUPlace());
   paddle::Tensor cond = paddle::experimental::less_than(coors, zerotensor);
-  cond = paddle::experimental::any(cond, {-1}, true); //tmp.any(-1, true);
-  cond = paddle::tile(cond, {1, coors.shape()[1]});
-  auto coors_clean = paddle::where(cond, fillvalue, coors); 
+    cond = paddle::experimental::any(cond, {-1}, true); //tmp.any(-1, true);
+    cond = paddle::tile(cond, {1, coors.shape()[1]});
+    auto coors_clean = paddle::where(cond, fillvalue, coors); 
   std::tie(out_coors, _index, coors_map, reduce_count) = paddle::unique(coors_clean, true, true, true, {0});
-  // std::cout << "test1" << std::endl;
+
   out_coors = out_coors.slice(1, out_coors.shape()[0]);
   reduce_count = reduce_count.slice(1, reduce_count.shape()[0]);
   coors_map = paddle::subtract(coors_map, paddle::full(coors_map.shape(), 1, coors_map.type(), paddle::GPUPlace())); //coors_map - 1;
-  // std::cout << "test2" << std::endl;
+
 
   coors_map = coors_map.cast(paddle::DataType::INT32); 
   reduce_count = reduce_count.cast(paddle::DataType::INT32); 
   auto reduced_feats = paddle::empty({out_coors.shape()[0], num_feats}, feats.type(), paddle::GPUPlace());
-  // std::cout << "test3" << std::endl;
   PD_DISPATCH_FLOATING_TYPES(
       feats.type(), "feats_reduce_kernel", ([&] {
     if (reduce_type == 2)
       reduced_feats = paddle::experimental::fill(reduced_feats, -std::numeric_limits<data_t>::infinity());
     else
       reduced_feats = paddle::experimental::fill(reduced_feats, static_cast<data_t>(0));
-  
+
     dim3 blocks(std::min(DIVUP(num_input, threadsPerBlock), maxGridDim));
     dim3 threads(threadsPerBlock);
 
@@ -229,8 +228,6 @@ std::vector<paddle::Tensor> dynamic_point_to_voxel_forward_gpu(
       reduced_feats = paddle::divide(reduced_feats, paddle::reshape(reduce_count, {reduce_count.shape()[0], 1}).cast(reduced_feats.type())); 
     }
   }));
-
-  // std::cout << "test4" << std::endl;
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
     printf("error in dynamic_point_to_voxel_forward_gpu: %s\n", cudaGetErrorString(err));

@@ -9,7 +9,7 @@ train_dataset:
   num_views: 6
   # ann_file: ./data/hesai90/hesai90_train_123905.pkl
   # ann_file: ./data/hesai90/hesai90_train_3w_dynamic.pkl
-  ann_file: ./data/hesai90/hesai90_train_20k_noweakly.pkl #./data/hesai90/hesai90_train_3w_dynamic_new.pkl
+  ann_file: ./data/hesai90/hesai90_train_3w_dynamic_new.pkl
   load_interval: 1
   classes: [
             'TrainedOthers', 'smallMot', 'bigMot', 'nonMot', 'pedestrian', 

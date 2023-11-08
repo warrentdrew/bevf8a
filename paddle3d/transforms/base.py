@@ -48,7 +48,6 @@ class Compose(TransformABC):
         as name
         """
         for t in self.transforms:
-            # print("transform: ", t.__class__.__name__)
             sample = t(sample)
 
         # if sample.modality == 'image' and sample.meta.channel_order == 'hwc':

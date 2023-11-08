@@ -1,0 +1,40 @@
+{
+    "define_macros": [],
+    "dynamic_point_poolv2_op.so": "bbbb63901ae339d6e015e0a861bbfa53",
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/include/python3.9"
+    ],
+    "library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "runtime_library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "sources": [
+        "dynamic_point_poolv2/dynamic_point_pool.cpp",
+        "dynamic_point_poolv2/dynamic_point_pool_kernel.cu"
+    ],
+    "undef_macros": []
+}

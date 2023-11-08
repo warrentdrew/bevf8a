@@ -32,7 +32,6 @@ from paddle3d.geometries import BBoxes2D, BBoxes3D
 from paddle3d.sample import Sample, SampleMeta
 import pickle
 import zipfile
-
 @manager.DATASETS.add_component
 class AT128Dataset(Custom3DDataset):
     r"""NuScenes Dataset.
@@ -71,22 +70,6 @@ class AT128Dataset(Custom3DDataset):
         use_valid_flag (bool): Whether to use `use_valid_flag` key in the info
             file as mask to filter gt_boxes and gt_names. Defaults to False.
     """
-    # NameMapping = {
-    #     'movable_object.barrier': 'barrier',
-    #     'vehicle.bicycle': 'bicycle',
-    #     'vehicle.bus.bendy': 'bus',
-    #     'vehicle.bus.rigid': 'bus',
-    #     'vehicle.car': 'car',
-    #     'vehicle.construction': 'construction_vehicle',
-    #     'vehicle.motorcycle': 'motorcycle',
-    #     'human.pedestrian.adult': 'pedestrian',
-    #     'human.pedestrian.child': 'pedestrian',
-    #     'human.pedestrian.construction_worker': 'pedestrian',
-    #     'human.pedestrian.police_officer': 'pedestrian',
-    #     'movable_object.trafficcone': 'traffic_cone',
-    #     'vehicle.trailer': 'trailer',
-    #     'vehicle.truck': 'truck'
-    # }
     DefaultAttribute = {
         'car': 'vehicle.parked',
         'pedestrian': 'pedestrian.moving',
@@ -352,12 +335,10 @@ class AT128Dataset(Custom3DDataset):
                     lidar2cam=lidar2cam_rts,
                     cam_intrinsic=cam_intrinsics,
                 ))
-
         else:
             for cam_type in self.cam_orders:
                 cam_info = list(info['cams'].values())[0]
                 input_dict['img_filename']=[cam_info['data_path']]
-        
         if not self.test_mode:
             annos = self.get_ann_info(index)
             input_dict['ann_info'] = annos
@@ -380,22 +361,17 @@ class AT128Dataset(Custom3DDataset):
         if input_dict is None:
             return None
         self.pre_pipeline(input_dict)
-        # example = self.pipeline(input_dict)
-        # 8A
         try:
             example = self.pipeline(input_dict)
         except zipfile.BadZipFile as e:
             print('bad zip file: ', input_dict['img_filename'][0].split('+')[0])
             return None
-
         if self.filter_empty_gt and \
                 (example is None or
                     ~(example['gt_labels_3d'] != -1).any()):
             return None
         # example.keys() = ['img_metas', 'points', 'img', 'gt_bboxes_3d', 'gt_labels_3d'] # for nuscenes
         #print("example['img_metas']: ", example['img_metas'])
-        # if 'filename' not in example['img_metas'][0].data:
-        #     example['img_metas'][0].data['filename']=input_dict['img_filename']
         return example
 
     def prepare_test_data(self, index):
@@ -411,8 +387,6 @@ class AT128Dataset(Custom3DDataset):
         self.pre_pipeline(input_dict)
         example = self.pipeline(input_dict)
         example['sample_idx'] = input_dict['sample_idx']
-        # print("sample idx", example['sample_idx'])
-        # exit()
         return example
 
     def get_ann_info(self, index):
@@ -443,7 +417,7 @@ class AT128Dataset(Custom3DDataset):
             # gt_names_3d = info['gt_names']
             gt_bboxes = info['gt_boxes']
             gt_names = info['gt_names']
-        
+
         ######### NameMapping ############
         gt_bboxes_3d = []
         gt_names_3d = []

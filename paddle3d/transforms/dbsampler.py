@@ -23,7 +23,7 @@ class BatchSampler:
                  sampled_list,
                  name=None,
                  epoch=None,
-                 shuffle=True, # TODO yipin close for match result
+                 shuffle=True,
                  drop_reminder=False):
         self._sampled_list = sampled_list
         self._indices = np.arange(len(sampled_list))
@@ -135,8 +135,8 @@ class DataBaseSampler(object):
 
         self.sampler_dict = {}
         for k, v in self.group_db_infos.items():
-            # self.sampler_dict[k] = BatchSampler(v, k, shuffle=True)
-            self.sampler_dict[k] = BatchSampler(v, k, shuffle=False) #TODO yipin #shuffle=True)
+            self.sampler_dict[k] = BatchSampler(v, k, shuffle=True)
+            # self.sampler_dict[k] = BatchSampler(v, k, shuffle=False) #wangna11
         # TODO: No group_sampling currently
         print("dbsample.py, self.sample_classes: ", self.sample_classes)
         print("dbsample.py, self.cat2label: ", self.cat2label)
@@ -220,17 +220,14 @@ class DataBaseSampler(object):
         sample_num_per_class = []
         if noise_classes is None:
             noise_classes = set()
-        # for class_name, max_sample_num in zip(self.sample_classes,
-        #                                       self.sample_max_nums):
-        # 8A
         for each_rate, class_name, max_sample_num in zip(self.rate , self.sample_classes,
-                                        self.sample_max_nums):
+                                              self.sample_max_nums):
             # class_label = self.cat2label[class_name]
             sampled_num = int(max_sample_num -
                               np.sum([n == class_name for n in gt_names]))
             # sampled_num = int(max_sample_num -
             #                   np.sum([n == class_label for n in gt_labels]))
-            sampled_num = np.round(each_rate * sampled_num).astype(np.int64) # each rate
+            sampled_num = np.round(each_rate * sampled_num).astype(np.int64)
             sampled_num_dict[class_name] = sampled_num
             sample_num_per_class.append(sampled_num)
 
@@ -307,7 +304,7 @@ class DataBaseSampler(object):
                     s_points[:, 2].sub_(dz[i])
 
             ret = {
-                'gt_names_3d': np.array(gt_names),  # 8A
+                'gt_names_3d': np.array(gt_names),
                 # 'difficulty': np.array(difficulty),
                 'gt_labels_3d':
                 gt_labels,

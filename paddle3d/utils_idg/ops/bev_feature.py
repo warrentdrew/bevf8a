@@ -70,9 +70,10 @@ class BevFeature(object):
         bev_map_feature = paddle.zeros((int(self.cnnseg_feature_dim), int(self.grid_size[1]), int(self.grid_size[0])))
         bev_map_feature[0, :, :] = -5.
         # calculate points2grid
-        pos_xf = (cur_points[:, 0] - self.point_cloud_range[0]) / self.voxel_size[0]
-        pos_yf = (cur_points[:, 1] - self.point_cloud_range[1]) / self.voxel_size[1]
-        pos_zf = (cur_points[:, 2] - self.point_cloud_range[2]) / self.voxel_size[2]
+        pos_xf = (cur_points[:, 0] - self.point_cloud_range[0]) / float(self.voxel_size[0])
+        pos_yf = (cur_points[:, 1] - self.point_cloud_range[1]) / float(self.voxel_size[1])
+        pos_zf = (cur_points[:, 2] - self.point_cloud_range[2]) / float(self.voxel_size[2])
+        
         points2grid = pos_yf.cast("int32") * self.grid_size[1] + pos_xf.cast("int32") 
         mask = (pos_xf < 0) | (pos_xf >= self.grid_size[0])
         mask |= ((pos_yf < 0) | (pos_yf >= self.grid_size[1]))

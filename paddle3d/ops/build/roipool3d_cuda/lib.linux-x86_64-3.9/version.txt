@@ -1,0 +1,40 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/include/python3.9"
+    ],
+    "library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "roipool3d_cuda.so": "e5b5286d1ba87a8f271ea3052fa31e79",
+    "runtime_library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "sources": [
+        "roipool3d/roipool3d.cpp",
+        "roipool3d/roipool3d_kernel.cu"
+    ],
+    "undef_macros": []
+}

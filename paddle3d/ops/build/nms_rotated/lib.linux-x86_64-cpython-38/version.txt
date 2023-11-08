@@ -1,0 +1,39 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/include",
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/workspace/miniconda3/envs/bevfusion_1019/include/python3.8"
+    ],
+    "library_dirs": [
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/base"
+    ],
+    "nms_rotated.so": "69b01b1ad4ba152847b8b40cefffeedb",
+    "runtime_library_dirs": [
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/workspace/miniconda3/envs/bevfusion_1019/lib/python3.8/site-packages/paddle/base"
+    ],
+    "sources": [
+        "nms_rotated/nms_rotated.cc"
+    ],
+    "undef_macros": []
+}

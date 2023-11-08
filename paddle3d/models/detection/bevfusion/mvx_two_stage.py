@@ -27,11 +27,9 @@ from paddle3d.sample import Sample, SampleMeta
 from paddle3d.utils import checkpoint
 from paddle3d.utils_idg.ops.dynamic_voxelize import Voxelization
 from paddle3d.utils_idg.ops.bev_feature import BevFeature
-from paddle3d.utils_idg import target_ops
+from paddle3d.models.heads.roi_heads.confidence_map_head import cat
 from paddle3d.utils_idg.ops.iou3d_utils import boxes3d_to_near_torch, anchors_match_valid_voxels
 
-
-# 8A used
 def calculate_anchor_masks_torch(anchors, coordinates, grid_size, voxel_size, pc_range):
     # grid_size:[600, 600, 1]
     # voxel_size:[0.2, 0.2, 10]
@@ -80,18 +78,6 @@ def calculate_anchor_masks_torch(anchors, coordinates, grid_size, voxel_size, pc
     else:
         raise NotImplementedError
 
-def cat(tensors, axis):
-    """
-    Efficient version of paddle.concat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    sum_c = sum([tensor.shape[0] for tensor in tensors])
-    if sum_c==0:
-        return tensors[0]
-    return paddle.concat(tensors, axis)
-    
 
 class MVXTwoStageDetector(nn.Layer):
     """Base class of Multi-modality"""
@@ -156,6 +142,9 @@ class MVXTwoStageDetector(nn.Layer):
             self.img_roi_head = img_roi_head
         if pts_roi_head is not None:
             self.pts_roi_head = pts_roi_head
+        if train_cfg is not None:
+            self.train_cfg = train_cfg
+
         self.cam_only = cam_only
         self.use_bbox_used_in_mainline = use_bbox_used_in_mainline
         self.need_convert_gt_format = need_convert_gt_format
@@ -252,10 +241,10 @@ class MVXTwoStageDetector(nn.Layer):
         return hasattr(
             self, 'pts_middle_encoder') and self.pts_middle_encoder is not None
 
-    def train(self):
-        super(MVXTwoStageDetector, self).train()
-        if self.with_pts_neck:
-            self.pts_neck.train()
+    # def train(self):
+    #     super(MVXTwoStageDetector, self).train()
+    #     if self.with_pts_neck:
+    #         self.pts_neck.train()
 
     def extract_img_feat(self, img, img_metas):
         """Extract features of images."""
@@ -305,6 +294,7 @@ class MVXTwoStageDetector(nn.Layer):
                       img_metas=None,
                       gt_bboxes_3d=None,
                       gt_labels_3d=None,
+                      gt_border_masks=None,
                       gt_labels=None,
                       gt_bboxes=None,
                       img=None,
@@ -342,6 +332,7 @@ class MVXTwoStageDetector(nn.Layer):
             gt_bboxes_3d = sample['gt_bboxes_3d']
             gt_labels_3d = sample['gt_labels_3d']
             points = sample.get('points', None)
+            gt_border_masks = sample.get('gt_border_masks', None)
             roi_regions = sample.get('roi_regions', None)
 
         img_feats, pts_feats = self.extract_feat(
@@ -350,7 +341,9 @@ class MVXTwoStageDetector(nn.Layer):
         if pts_feats:
             losses_pts = self.forward_pts_train(pts_feats, gt_bboxes_3d,
                                                 gt_labels_3d, img_metas,
-                                                gt_bboxes_ignore=gt_bboxes_ignore, gt_border_masks=gt_border_masks, roi_regions=roi_regions)
+                                                gt_bboxes_ignore=gt_bboxes_ignore, 
+                                                gt_border_masks=gt_border_masks, 
+                                                roi_regions=roi_regions)
             losses.update(losses_pts)
         if img_feats:
             losses_img = self.forward_img_train(
@@ -387,18 +380,13 @@ class MVXTwoStageDetector(nn.Layer):
         Returns:
             dict: Losses of each branch.
         """
-        # pts_feats = paddle.load("pts_feats1.pdt")
         num_points_in_gts = None
-        # outs = self.pts_bbox_head(pts_feats)
-        outs, head_layers = self.pts_bbox_head(pts_feats) # TODO1023 8A type
-        if self.with_pts_roi_head: # TODO1023
+        outs, head_layers = self.pts_bbox_head(pts_feats)
+        if self.with_pts_roi_head:
             roi_preds = self.pts_roi_head(pts_feats)
-        # outs = paddle.load("outs.pdt")
-        # head_layers = paddle.load("head_layers.pdt")
-        # roi_preds = paddle.load("roi_preds.pdt")
+        
         if self.need_convert_gt_format:
             gt_bboxes_3d, gt_labels_3d, num_points_in_gts, gt_border_masks = self.convert_gt_format(gt_bboxes_3d, gt_labels_3d, num_points_in_gts=num_points_in_gts, gt_border_masks=gt_border_masks)
-        
         
         roi_inputs = outs + (img_metas, self.coors)
 
@@ -408,53 +396,16 @@ class MVXTwoStageDetector(nn.Layer):
                 *loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
         else:
             loss_inputs = outs + (gt_bboxes_3d, gt_labels_3d, img_metas, self.coors)
-
-            # =====================
-            # 8A   
-            # roi_inputs = outs + (img_metas, self.coors) # remove add once before
             if roi_regions is not None:
-                # print("===========test2.5=============")
                 self.expand_roi_regions_by_pred(img_metas, loss_inputs, roi_inputs, roi_preds, roi_regions)
-                # print("===========test2.6=============")
-
-            # =====================
             losses, anchors_mask, batch_anchors, labels = self.pts_bbox_head.loss(
                 *loss_inputs, self.test_cfg, None, gt_bboxes_ignore, gt_border_masks, roi_regions)
-        # losses = {}
-
-        loss_inputs = outs + (gt_bboxes_3d, gt_labels_3d, img_metas, self.coors)
-        if self.with_pts_roi_head:  # TODO1023
+        
+        if self.with_pts_roi_head:
             roi_head_loss = self.pts_roi_head.loss(roi_preds, *loss_inputs, batch_anchors, anchors_mask, labels, num_points_in_gts=num_points_in_gts)
             losses.update(roi_head_loss)
         return losses
 
-    # =============
-    # 8A
-    # def expand_roi_regions_by_pred(self, img_metas, loss_inputs, roi_inputs, roi_preds, roi_regions):
-    #     featmap_sizes = np.array(self.pts_bbox_head.grid_size)[:2] // self.pts_bbox_head.downsample
-    #     # device = loss_inputs[0][0].device
-    #     batch_anchors = self.pts_bbox_head.get_anchors(featmap_sizes, img_metas)
-    #     #
-    #     if self.pts_bbox_head.cal_anchor_mask or self.pts_bbox_head.assign_cfg.use_anchor_mask:
-    #         anchors_mask = target_ops.calculate_anchor_masks_torch(batch_anchors, self.coors, self.pts_bbox_head.grid_size,
-    #                                                                self.pts_bbox_head.voxel_size,
-    #                                                                self.pts_bbox_head.pc_range)
-    #     else:
-    #         anchors_mask = [None for _ in range(len(batch_anchors))]
-    #     nms_rets = self.pts_roi_head.get_bboxes(roi_preds, *roi_inputs, batch_anchors, anchors_mask, self.test_cfg,
-    #                                             is_training=True)
-    #     for batch_id in range(len(roi_preds)):
-
-    #         label_preds = nms_rets[2][batch_id]
-    #         bigmot_cls_id = self.pts_roi_head.class2id['bigMot']
-    #         selected_labels_inds = label_preds == bigmot_cls_id
-    #         selected_boxes = nms_rets[0][batch_id][selected_labels_inds]
-
-    #         for region in roi_regions[batch_id]:
-    #             if region['type'] == 3:
-    #                 region['region'] = paddle.concat([region['region'], selected_boxes], axis=0)
-
-		
     def expand_roi_regions_by_pred(self, img_metas, loss_inputs, roi_inputs, roi_preds, roi_regions):
         featmap_sizes = np.array(self.pts_bbox_head.grid_size)[:2] // self.pts_bbox_head.downsample
         batch_anchors = self.pts_bbox_head.get_anchors(featmap_sizes, img_metas)
@@ -466,7 +417,7 @@ class MVXTwoStageDetector(nn.Layer):
             anchors_mask = [None for _ in range(len(batch_anchors))]
         nms_rets = self.pts_roi_head.get_bboxes(roi_preds, *roi_inputs, batch_anchors, anchors_mask, self.test_cfg,
                                                 is_training=True)
-        for batch_id in range(len(roi_preds)):    # TODO yipin change back
+        for batch_id in range(len(roi_preds)):
 
             label_preds = nms_rets[2][batch_id]
             bigmot_cls_id = self.pts_roi_head.class2id['bigMot']
@@ -478,7 +429,6 @@ class MVXTwoStageDetector(nn.Layer):
                     for region in roi_regions[batch_id]:
                         if region['type'] == 3:
                             region['region'] = paddle.concat([region['region'], selected_boxes], axis=0)
-
 
     def forward_img_train(self,
                           x,
@@ -554,7 +504,6 @@ class MVXTwoStageDetector(nn.Layer):
 
         
     def forward(self, sample, **kwargs):
-        # sample = paddle.load("test_sample.pdt")
         if self.training:
             loss_dict = self.forward_train(sample, **kwargs)
             return {'loss': loss_dict}
@@ -578,7 +527,6 @@ class MVXTwoStageDetector(nn.Layer):
 
     def simple_test_pts(self, x, img_metas, rescale=True):
         """Test function of point cloud branch."""
-        # outs = self.pts_bbox_head(x)
         outs, head_layers = self.pts_bbox_head(x)
         if self.with_pts_roi_head:
             roi_preds = self.pts_roi_head(x)
@@ -598,10 +546,15 @@ class MVXTwoStageDetector(nn.Layer):
         if self.use_bbox_used_in_mainline:
             bbox_list[0][0].tensor[:, 2] -= 0.5 * bbox_list[0][0].tensor[:, 5]
 
+        # bbox_results = [
+        #     bbox3d2result(bboxes, scores, labels)
+        #     for bboxes, scores, labels in bbox_list
+        # ]
         bbox_results = [
             bbox3d2result_combouid(bboxes, scores, labels, combo_uids)
             for bboxes, scores, labels, combo_uids in bbox_list
         ]
+        
         return bbox_results
 
     def convert_gt_format(self, gt_bboxes, gt_labels, num_points_in_gts=None, gt_border_masks=None):
@@ -651,7 +604,7 @@ class MVXTwoStageDetector(nn.Layer):
                         num_points_in_gts_per_batch.append(num_points_in_gts[batch_id][mask])
 
                     if gt_border_masks is not None:
-                        gt_border_masks_per_batch.append(paddle.to_tensor(gt_border_masks[batch_id][mask])) #torch.tensor(gt_border_masks[batch_id][mask], device=device))
+                        gt_border_masks_per_batch.append(paddle.to_tensor(gt_border_masks[batch_id][mask])) 
 
                 # gt_bboxes_per_batch = LiDARInstance3DBoxes.cat(gt_bboxes_per_batch)
                 if gt_bboxes_per_batch[0].shape[0] == 0:
@@ -668,7 +621,7 @@ class MVXTwoStageDetector(nn.Layer):
                 if num_points_in_gts is not None:
                     num_points_in_gts_per_batch = paddle.concat(num_points_in_gts_per_batch, axis=0)
                 if gt_border_masks is not None:
-                    gt_border_masks_per_batch = cat(gt_border_masks_per_batch, axis = 0) #paddle.concat(gt_border_masks_per_batch, axis = 0) #torch.cat(gt_border_masks_per_batch, dim=0)
+                    gt_border_masks_per_batch = cat(gt_border_masks_per_batch, axis=0) 
                 gt_bboxes_per_task.append(gt_bboxes_per_batch)
                 gt_labels_per_task.append(gt_labels_per_batch)
                 if num_points_in_gts is not None:
@@ -746,7 +699,7 @@ class MVXTwoStageDetector(nn.Layer):
         collated_batch = {}
         collated_fields = [
             'img', 'points', 'img_metas', 'gt_bboxes_3d', 'gt_labels_3d', 'gt_border_masks', 'roi_regions', 
-            'modality', 'meta', 'img_depth', 'sample_idx' 
+            'modality', 'meta', 'idx', 'img_depth', 'sample_idx'
         ]
         for k in list(sample.keys()):
             if k not in collated_fields:
@@ -761,6 +714,13 @@ class MVXTwoStageDetector(nn.Layer):
                 collated_batch[k] = [elem[k] for elem in batch]
         return collated_batch
 
+    def train(self):
+        super(MVXTwoStageDetector, self).train()
+        # if self.train_cfg is not None and self.train_cfg.get('bn_eval') is not None:
+        #     bn_eval = self.train_cfg.get('bn_eval')
+        #     for block in bn_eval:
+        #         getattr(self, block).train()
+
 
 def bbox3d2result(bboxes, scores, labels):
     """Convert detection results to a list of numpy arrays.
@@ -768,26 +728,24 @@ def bbox3d2result(bboxes, scores, labels):
     return dict(
         boxes_3d=bboxes, scores_3d=scores, labels_3d=labels)
 
-# ===========
-# 8A
 def bbox3d2result_combouid(bboxes, scores, labels, combo_uids):
     """Convert detection results to a list of numpy arrays.
 
     Args:
-        bboxes (torch.Tensor): Bounding boxes with shape of (n, 5).
-        labels (torch.Tensor): Labels with shape of (n, ).
-        scores (torch.Tensor): Scores with shape of (n, ).
+        bboxes (paddle.Tensor): Bounding boxes with shape of (n, 5).
+        labels (paddle.Tensor): Labels with shape of (n, ).
+        scores (paddle.Tensor): Scores with shape of (n, ).
 
     Returns:
-        dict[str, torch.Tensor]: Bounding box results in cpu mode.
+        dict[str, paddle.Tensor]: Bounding box results in cpu mode.
 
-            - boxes_3d (torch.Tensor): 3D boxes.
-            - scores (torch.Tensor): Prediction scores.
-            - labels_3d (torch.Tensor): Box labels.
+            - boxes_3d (paddle.Tensor): 3D boxes.
+            - scores (paddle.Tensor): Prediction scores.
+            - labels_3d (paddle.Tensor): Box labels.
     """
     return dict(
-        boxes_3d=bboxes,
-        scores_3d=scores,
-        labels_3d=labels,
-        combo_uid=combo_uids
+        boxes_3d=bboxes.numpy(),
+        scores_3d=scores.numpy(),
+        labels_3d=labels.numpy(),
+        combo_uid=combo_uids.numpy()
         )

@@ -28,6 +28,29 @@ from paddle3d.env import TMP_HOME
 from paddle3d.utils.logger import logger
 
 custom_ops = {
+    # 'nms_rotated_cc': {
+    #     'sources': [
+    #         'nms_rotated_det/nms_rotated.cc', 
+    #     ],
+    #     'version':
+    #     '0.1.0'
+    # },
+    # 'bev_feature_layer': {
+    #     'sources': [
+    #         'bev_feature/bev_feature.cpp',
+    #         'bev_feature/bev_feature.cu'
+    #     ],
+    #     'version':
+    #     '0.1.0',
+    # },
+    'bev_feature_layer': {
+        'sources': [
+            'bev_feature/bev_feature.cc',
+            'bev_feature/bev_feature_kernel.cu'
+        ],
+        'version':
+        '0.1.0',
+    },
     'dynamic_point_to_voxel': {
         'sources': [
             'dynamic_scatter/scatter_point_api.cc',
@@ -61,13 +84,40 @@ custom_ops = {
         '0.1.0',
         'extra_cuda_cflags': ['-arch=sm_60'],
     },
-    'bev_feature_layer': {
+    'dynamic_point_poolv2_op': {
         'sources': [
-            'bev_feature/bev_feature.cc',
-            'bev_feature/bev_feature_kernel.cu'
+            'dynamic_point_poolv2/dynamic_point_pool.cpp', 
+            'dynamic_point_poolv2/dynamic_point_pool_kernel.cu'
         ],
         'version':
-        '0.1.0',
+        '0.1.0'
+    },
+    'scatter_max_op': {
+        'sources': [
+            # 'scatter_max/atomics.cuh', 
+            'scatter_max/scatter_max.cpp', 
+            'scatter_max/scatter_max_kernel.cu', 
+        ],
+        'version':
+        '0.1.0'
+    },
+    'roi_align_rotated_cuda': {
+        'sources': [
+            # 'scatter_max/atomics.cuh', 
+            'roi_align_rotated/roi_align_rotated.cpp', 
+            'roi_align_rotated/roi_align_rotated_kernel.cu', 
+        ],
+        'version':
+        '0.1.0'
+    },
+    'roipool3d_cuda': {
+        'sources': [
+            # 'scatter_max/atomics.cuh', 
+            'roipool3d/roipool3d.cpp', 
+            'roipool3d/roipool3d_kernel.cu', 
+        ],
+        'version':
+        '0.1.0'
     },
     'iou3d_nms_cuda': {
         'sources': [

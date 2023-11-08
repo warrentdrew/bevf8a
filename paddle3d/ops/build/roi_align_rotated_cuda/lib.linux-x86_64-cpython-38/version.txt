@@ -1,0 +1,40 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/opt/conda/envs/bevf8a_t2/include/python3.8"
+    ],
+    "library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "roi_align_rotated_cuda.so": "60f565c8e272d9854b0cc98b61a594fc",
+    "runtime_library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "sources": [
+        "roi_align_rotated/roi_align_rotated.cpp",
+        "roi_align_rotated/roi_align_rotated_kernel.cu"
+    ],
+    "undef_macros": []
+}

@@ -327,7 +327,7 @@ class WeightedSmoothL1LossIDG(nn.Layer):
 class WeightedSoftmaxClassificationLossIDG(nn.Layer):
     """Softmax loss function."""
 
-    def __init__(self, logit_scale=1.0, loss_weight=1.0, name=""):
+    def __init__(self, logit_scale=1.0, loss_weight=1.0, cls_weight=None, name=""):
         """Constructor.
 
         Args:
@@ -340,6 +340,9 @@ class WeightedSoftmaxClassificationLossIDG(nn.Layer):
         self.name = name
         self._loss_weight = loss_weight
         self._logit_scale = logit_scale
+        self._cls_weight = cls_weight
+        if self._cls_weight is not None:
+            self._cls_weight = paddle.to_tensor(cls_weight)
 
     def __call__(self, prediction_tensor, target_tensor, weights):
         """Compute loss function.
@@ -359,16 +362,19 @@ class WeightedSoftmaxClassificationLossIDG(nn.Layer):
         prediction_tensor = prediction_tensor / self._logit_scale
         per_row_cross_ent = _softmax_cross_entropy_with_logits(
             labels=target_tensor.reshape([-1, num_classes]),
-            logits=prediction_tensor.reshape([-1, num_classes]), )
+            logits=prediction_tensor.reshape([-1, num_classes]), 
+            cls_weight=self._cls_weight,)
 
         return per_row_cross_ent.reshape(weights.shape) * weights
 
-def _softmax_cross_entropy_with_logits(logits, labels):
+def _softmax_cross_entropy_with_logits(logits, labels, cls_weight=None):
     """Softmax cross entropy with logits."""
-    param = list(range(len(logits.shape)))
-    transpose_param = [0] + [param[-1]] + param[1:-1]
+    param = list(range(len(logits.shape))) # [0, 1]
+    transpose_param = [0] + [param[-1]] + param[1:-1] # [0, 1, 2] -> [0, 2, 1]
     logits = logits.transpose(transpose_param)  # [N, ..., C] -> [N, C, ...]
-    loss_ftor = nn.CrossEntropyLoss(reduction="none")
+    if cls_weight is not None:
+        cls_weight = cls_weight.cast(logits.dtype)
+    loss_ftor = nn.CrossEntropyLoss(reduction="none", weight=cls_weight)
     loss = loss_ftor(logits, labels.argmax(axis=-1))
     return loss
     

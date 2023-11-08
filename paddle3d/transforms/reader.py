@@ -138,7 +138,6 @@ class LoadPointCloud(TransformABC):
             data_sweep_list = [
                 data,
             ]
-            # np.random.seed(0)
             for i in np.random.choice(
                     len(sample.sweeps), len(sample.sweeps), replace=False):
                 sweep = sample.sweeps[i]
@@ -361,12 +360,10 @@ class LoadPointsFromZipFile(TransformABC):
     
     def _random_sample_points(self, points, drop_ratio=1.0):
         if drop_ratio < 0.9999:
-            random.seed(0) # TODO zhuyipin remove in training 
             sample_pointnum_ratio = random.random() * (1 - drop_ratio) + drop_ratio
             points_num_src = points.shape[0]
             points_num_tgt = min(int((points_num_src + 1 / sample_pointnum_ratio - 1) * sample_pointnum_ratio),
                                 points_num_src)
-            random.seed(0) # TODO zhuyipin remove in training 
             sample_indexes = random.sample(range(points_num_src), points_num_tgt)
             points = points[sample_indexes, ...]
         return points
@@ -385,7 +382,7 @@ class LoadPointsFromZipFile(TransformABC):
         sweeps = results['sweeps']
 
         if len(sweeps) > 0:
-            if True: #self.test_mode: #TODO zhuyipin change to test mode
+            if self.test_mode:
                 choices = []
                 choices_list = list(range(len(sweeps)))
                 if self.nsweeps > 1:
@@ -396,7 +393,7 @@ class LoadPointsFromZipFile(TransformABC):
             else: # train
                 # assert (self.nsweeps - 1) <= len(sweeps
                 #     ), "nsweeps {} should not greater than list length {}.".format(self.nsweeps, len(sweeps))
-                np.random.seed(0) # TODO zhuyipin
+                # choices = sorted(choices_list, key=lambda _i: sweeps[_i]['time_lag'], reverse=False) #wangna11
                 choices = np.random.choice(min(len(sweeps), (self.nsweeps - 1) * 2), self.nsweeps - 1, replace=False)
             for idx in choices:
                 sweep = results['sweeps'][idx]
@@ -439,8 +436,6 @@ class LoadPointsFromZipFile(TransformABC):
         # 'records/kitti_data/at128_fusion/files/MKZ223_495_1649836079_1649836919/408083/408083.zip'
 
         #(num_points, 4): x, y, z, intensity
-        # points = self._load_points(zip_path)
-        # 8A
         try:
             points = self._load_points(zip_path)
         except:
@@ -567,7 +562,6 @@ class LoadMultiViewImageFromZipFiles(TransformABC):
         # Load from ZIP
         zip_path = filename[0].split('+')[0]
 
-        # 8A
         with zipfile.ZipFile(zip_path, 'r') as zip_obj:
             zip_file_list = zip_obj.namelist()
             #print("zip_file_list: ", zip_file_list)   # 'velodyne_points/at128_fusion.pcd'
@@ -628,7 +622,7 @@ class LoadAnnotations3D(TransformABC):
             with_seg_3d=False,
             with_name_3d=False,
             with_weakly_roi=False,
-            classes=None, # 8A
+            classes=None,
     ):
         self.with_bbox_3d = with_bbox_3d
         self.with_label_3d = with_label_3d
@@ -637,7 +631,7 @@ class LoadAnnotations3D(TransformABC):
         self.with_seg_3d = with_seg_3d
         self.with_name_3d = with_name_3d
         self.with_weakly_roi = with_weakly_roi
-        self.classes = classes # 8A
+        self.classes = classes
 
     def _load_names_3d(self, results):
         """Private function to load label name annotations.
@@ -683,13 +677,10 @@ class LoadAnnotations3D(TransformABC):
             dict: The dict containing loaded roi regions.
         """
         roi_regions = []
-        
-        # ================
-        # 8A 
         if 'accessory_main' in self.classes:
             gt_names_3d = np.asarray(results["gt_names_3d"])
             mot_mask = ((gt_names_3d == 'bigMot') | (gt_names_3d == 'smallMot')) | (gt_names_3d == 'verybigMot')
-            # mot_mask = paddle.to_tensor(mot_mask) #torch.from_numpy(mot_mask)
+            mot_mask = np.array(mot_mask)
             roi_regions = [
                 {
                     'type': 3,
@@ -698,8 +689,6 @@ class LoadAnnotations3D(TransformABC):
                     'task_of_interest': self.classes.index('accessory_main')
                 }
             ]
-        # ================
-            
         roi_infos = results['ann_info'].get('roi_data', None)
         if roi_infos is not None and 'result' in roi_infos:
             roi_infos = roi_infos['result']
@@ -864,7 +853,6 @@ class LoadMultiViewImageFromMultiSweepsFiles(object):
                     int((self.sweep_range[0] + self.sweep_range[1]) / 2) - 1
                 ]
             else:
-                # np.random.seed(0)
                 if np.random.random() < self.prob:
                     if self.sweep_range[0] < len(sample['sweeps']):
                         sweep_range = list(
@@ -875,7 +863,6 @@ class LoadMultiViewImageFromMultiSweepsFiles(object):
                     else:
                         sweep_range = list(
                             range(self.sweep_range[0], self.sweep_range[1]))
-                    # np.random.seed(0)
                     choices = np.random.choice(
                         sweep_range, self.sweeps_num, replace=False)
                 else:

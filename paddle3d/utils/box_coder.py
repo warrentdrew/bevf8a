@@ -338,11 +338,8 @@ class DeltaXYZWLHRBBoxCoderIDG(paddle.nn.Layer):
         Returns:
             paddle.Tensor: Box transformation deltas.
         """
-
-        # 8A
         src_boxes = paddle.concat([src_boxes[...,0:3], paddle.clip(src_boxes[..., 3:6], min=1e-5), src_boxes[..., 6:]], axis=-1)
         dst_boxes = paddle.concat([dst_boxes[...,0:3], paddle.clip(dst_boxes[..., 3:6], min=1e-5), dst_boxes[..., 6:]], axis=-1)
-        # ===========
         box_ndim = src_boxes.shape[-1]
         cas, cgs, cts = [], [], []
         if box_ndim > 7:

@@ -218,8 +218,7 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
             bev_features = paddle.concat(tmp_bev_features, axis=0)
         else:
             bev_features = None
-
-        # bev_features = paddle.to_tensor(np.load("/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/bev_features.npy")) 
+            
         return points, coors_batch, bev_features
 
     def extract_img_feat(self, img, img_metas):
@@ -255,7 +254,6 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
             pts_feats = None
         else:
             pts_feats = self.extract_pts_feat(points, img_feats, img_metas)
-        # pts_feats = paddle.load("pts_feats2.pdt")
         depth_dist = None
 
         if self.cam2bev_modules is not None:
@@ -269,7 +267,7 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
                 mlvl_feats[i] = mlvl_feats[i].reshape([B, int(BN / B), C, H, W])
         
             img_bev_feat = self.cam2bev_modules(mlvl_feats, img_metas, gt_bboxes_3d, gt_labels_3d, lidar_aug_matrix=lidar_aug_matrix)
-            # img_bev_feat = paddle.load("img_bev_feat.pdt")
+             
             if pts_feats is None:
                 pts_feats = [img_bev_feat] ####cam stream only
             else:
@@ -277,10 +275,8 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
                     if img_bev_feat.shape[2:] != pts_feats[0].shape[2:]:
                         img_bev_feat = F.interpolate(img_bev_feat, pts_feats[0].shape[2:], mode='bilinear', align_corners=True)
                     pts_feats = [self.reduc_conv(paddle.concat([img_bev_feat, pts_feats[0]], axis=1))]
-                    # pts_feats = paddle.load("pts_feats4.pdt")
                     if self.se:
                         pts_feats = [self.seblock(pts_feats[0])]
-                    # pts_feats = paddle.load("pts_feats5.pdt")
 
         elif self.lift:
             BN, C, H, W = img_feats[0].shape
@@ -326,7 +322,7 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
                     ]
                     if self.se:
                         pts_feats = [self.seblock(pts_feats[0])]
-        # pts_feats = paddle.load("pts_feats3.pdt")
+        
         return dict(
             img_feats=img_feats, pts_feats=pts_feats, depth_dist=depth_dist)
 
@@ -357,7 +353,6 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
         img_feats = feature_dict['img_feats']
         pts_feats = feature_dict['pts_feats']
         depth_dist = feature_dict['depth_dist']
-
 
         bbox_list = [dict() for i in range(len(img_metas))]
         if pts_feats and self.with_pts_bbox:
@@ -454,46 +449,37 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
             valid_flag = sample.get('valid_flag', None)
             gt_border_masks = sample.get('gt_border_masks', None)
             roi_regions = sample.get('roi_regions', None)
+
             if roi_regions is not None:
                 for i in range(len(roi_regions)):
                     for j in range(len(roi_regions[i])):
-                        if roi_regions[i][j]['is_empty']:
+                        if roi_regions[i][j]['is_emtpy']:
                             roi_regions[i][j]['region'] = paddle.ones((0, 7), dtype='float32')
 
-        # print("========test1================")
+
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas, gt_bboxes_3d=gt_bboxes_3d, gt_labels_3d=gt_labels_3d, lidar_aug_matrix=lidar_aug_matrix)
         img_feats = feature_dict['img_feats']
         pts_feats = feature_dict['pts_feats']
         depth_dist = feature_dict['depth_dist']
 
-        
-        # img_feats = (paddle.to_tensor(np.load('/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/img_feats[0].npy')),)
-        # pts_feats = [paddle.to_tensor(np.load('/mnt/zhuyipin/idg/lidarrcnn/BEVFusion/pts_feats2.npy'))]
         losses = dict()
 
-        # img_feats = paddle.load("img_feats.pdt")
-        # pts_feats = paddle.load("pts_feats.pdt")
         if pts_feats:
             if self.use_valid_flag == True:
-                # print("========test2================")
                 losses_pts = self.forward_pts_train(pts_feats, gt_bboxes_3d,
                                                 gt_labels_3d, img_metas, valid_flag, 
                                                 gt_bboxes_ignore=gt_bboxes_ignore, 
                                                 gt_border_masks=gt_border_masks, 
                                                 roi_regions=roi_regions)
-                # print("========test3================")
             else:
-
                 losses_pts = self.forward_pts_train(pts_feats, gt_bboxes_3d,
                                                 gt_labels_3d, img_metas, None, 
                                                 gt_bboxes_ignore=gt_bboxes_ignore, 
                                                 gt_border_masks=gt_border_masks, 
                                                 roi_regions=roi_regions)
-
             losses.update(losses_pts)
         if img_feats:
-            # print("========test4================")
             losses_img = self.forward_img_train(
                 img_feats,
                 img_metas=img_metas,
@@ -501,7 +487,6 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
                 gt_labels=gt_labels,
                 gt_bboxes_ignore=gt_bboxes_ignore,
                 proposals=proposals)
-            # print("========test5================")
             if img_depth is not None:
                 loss_depth = self.depth_dist_loss(
                     depth_dist,
@@ -562,11 +547,3 @@ class BEVFFasterRCNNV1(MVXFasterRCNN):
         paddle.jit.to_static(self, input_spec=input_spec)
         paddle.jit.save(self, save_path)
         logger.info("Exported model is saved in {}".format(save_path))
-
-
-# if __name__ == '__main__':
-#     pts_feats = paddle.load("pts_feats4.pdt")
-#     lic = 384
-#     self.seblock = SEBlock(lic)
-#     pts_feats = [self.seblock(pts_feats[0])]
-#     print(pts_feats)

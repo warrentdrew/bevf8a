@@ -308,8 +308,10 @@ class ConfidenceHead(paddle.nn.Layer):
                     # box_preds = box_preds[a_mask]   
                     # cls_preds = cls_preds[a_mask]
                     a_index = paddle.where(a_mask)[0].squeeze(-1)
-                    box_preds = box_preds.index_select(a_index)
-                    cls_preds = cls_preds.index_select(a_index)
+                    if a_index.shape[0] > 0:
+                        box_preds = box_preds.index_select(a_index)
+                        cls_preds = cls_preds.index_select(a_index)
+        
                 box_preds = box_preds.astype(dtype='float32')
                 cls_preds = cls_preds.astype(dtype='float32')
                 if self.encode_background_as_zeros:
@@ -606,7 +608,7 @@ class ConfidenceHead(paddle.nn.Layer):
             box_ndim = self.box_n_dim
             if kwargs.get('mode', False):
                 batch_box_preds_base = batch_box_preds.reshape((batch_size, -1, box_ndim))
-                batch_box_preds = batch_task_anchors # .clone()
+                batch_box_preds = batch_task_anchors.clone()
                 batch_box_preds[:, :, ([0, 1, 3, 4, 6])] = batch_box_preds_base
             else:
                 batch_box_preds = batch_box_preds.reshape((batch_size, -1, box_ndim))
@@ -729,10 +731,9 @@ class ConfidenceHead(paddle.nn.Layer):
         if self.ignore_invalid_voxel:
             confidences_map = confidences_map.reshape((batch_size, -1)) 
             for i in range(batch_size):
-                batch_mask = coors[:, (0)] == i
-                this_coords = coors[(batch_mask), :]
-                indices = this_coords[:, (2)] * self.grid_size[0
-                    ] + this_coords[:, (3)]
+                batch_mask = coors[:, 0] == i
+                this_coords = coors[batch_mask, :]
+                indices = this_coords[:, 2] * self.grid_size[0] + this_coords[:, (3)]
                 indices = indices.cast('int64')
                 voxel_mask = paddle.zeros(shape=(self.grid_size[1] * self.
                     grid_size[0],), dtype='bool')
@@ -740,13 +741,17 @@ class ConfidenceHead(paddle.nn.Layer):
                 confidences_map[i][~voxel_mask] = -1
             confidences_map = confidences_map.reshape((batch_size, self.grid_size[1], self.grid_size[0]))
 
-        for i, ret in enumerate(ret_list):
-            # print("p3: ", ret['box3d_lidar'])
-            box3d_lidar = ret['box3d_lidar']
-            confidences = self.get_confidences(confidences_map[i], box3d_lidar)
-            # print("p5: ", box3d_lidar)
-            # print("p4: ", ret['box3d_lidar'])
-            ret['confidences'] = confidences
+        # ====================================
+        # confidence not necessary
+        # for i, ret in enumerate(ret_list):
+        #     # print("p3: ", ret['box3d_lidar'])
+        #     box3d_lidar = ret['box3d_lidar']
+        #     confidences = self.get_confidences(confidences_map[i], box3d_lidar)
+        #     # print("p5: ", box3d_lidar)
+        #     # print("p4: ", ret['box3d_lidar'])
+        #     ret['confidences'] = confidences
+        # ====================================
+
         nms_groups = test_cfg["nms"].get('nms_groups', [])
         if len(nms_groups) != 0:
             if not isinstance(nms_groups[0][0], int):
@@ -760,20 +765,16 @@ class ConfidenceHead(paddle.nn.Layer):
                 # print("pr2: ", ret['box3d_lidar'])
                 if ret['box3d_lidar'].shape[0] == 0:
                     continue
-                # print("pr0: ", ret['box3d_lidar']) # TODO
-                # print("pr0: type", type(ret['box3d_lidar'])) # TODO
-                (box3d_lidar, scores, confidences, iou_scores, label_preds) = (
-                    self.nms_for_groups(test_cfg, nms_groups, ret['box3d_lidar'], ret['scores'], ret['iou_scores'], ret['confidences'], ret['label_preds']))
+
+                # (box3d_lidar, scores, confidences, iou_scores, label_preds) = (
+                #     self.nms_for_groups(test_cfg, nms_groups, ret['box3d_lidar'], ret['scores'], ret['iou_scores'], ret['confidences'], ret['label_preds']))
+                (box3d_lidar, scores, iou_scores, label_preds) = (
+                    self.nms_for_groups(test_cfg, nms_groups, ret['box3d_lidar'], ret['scores'], ret['iou_scores'], ret['label_preds']))
                 ret_list[i]['box3d_lidar'] = box3d_lidar
                 ret_list[i]['scores'] = scores
                 ret_list[i]['iou_scores'] = iou_scores
-                ret_list[i]['confidences'] = confidences
+                # ret_list[i]['confidences'] = confidences #TODO 
                 ret_list[i]['label_preds'] = label_preds
-                # ret_list[i]['box3d_lidar'] = ret['box3d_lidar']
-                # ret_list[i]['scores'] = ret['scores']
-                # ret_list[i]['iou_scores'] = ret['iou_scores']
-                # ret_list[i]['confidences'] = ret['confidences']
-                # ret_list[i]['label_preds'] = ret['label_preds']
 
         nms_overlap_groups = test_cfg['nms'].get('nms_overlap_groups', [])
         if len(nms_overlap_groups) != 0:
@@ -787,21 +788,20 @@ class ConfidenceHead(paddle.nn.Layer):
             for i, ret in enumerate(ret_list):
                 if ret['box3d_lidar'].shape[0] == 0:
                     continue
-                (box3d_lidar, scores, confidences, iou_scores, label_preds) = (
+                # (box3d_lidar, scores, confidences, iou_scores, label_preds) = ( # TODO
+                #     self.nms_overlap_for_groups(test_cfg,
+                #     nms_overlap_groups, ret['box3d_lidar'], ret['scores'],
+                #     ret['iou_scores'], ret['confidences'], ret['label_preds']))
+                (box3d_lidar, scores, iou_scores, label_preds) = (
                     self.nms_overlap_for_groups(test_cfg,
                     nms_overlap_groups, ret['box3d_lidar'], ret['scores'],
-                    ret['iou_scores'], ret['confidences'], ret['label_preds']))
+                    ret['iou_scores'], ret['label_preds']))
                 ret_list[i]['box3d_lidar'] = box3d_lidar
                 ret_list[i]['scores'] = scores
                 ret_list[i]['iou_scores'] = iou_scores
-                ret_list[i]['confidences'] = confidences
+                # ret_list[i]['confidences'] = confidences #TODO 
                 ret_list[i]['label_preds'] = label_preds
 
-                # ret_list[i]['box3d_lidar'] = ret['box3d_lidar']
-                # ret_list[i]['scores'] = ret['scores']
-                # ret_list[i]['iou_scores'] = ret['iou_scores']
-                # ret_list[i]['confidences'] = ret['confidences']
-                # ret_list[i]['label_preds'] = ret['label_preds']
 
         # ====================
         # add 8A
@@ -976,8 +976,152 @@ class ConfidenceHead(paddle.nn.Layer):
             predictions_dicts.append(predictions_dict)
         return predictions_dicts
 
+    # def nms_for_groups(self, test_cfg, nms_groups, box3d_lidar, scores,
+    #     iou_scores, confidences, label_preds):
+    #     # print("pr1: ", box3d_lidar)
+    #     group_nms_pre_max_size = test_cfg['nms'].get('group_nms_pre_max_size', [])
+    #     group_nms_post_max_size = test_cfg['nms'].get('group_nms_post_max_size',
+    #         [])
+    #     group_nms_iou_threshold = test_cfg['nms'].get('group_nms_iou_threshold',
+    #         [])
+    #     add_iou_edge = test_cfg['nms'].get('add_iou_edge', 1.0)
+    #     if len(group_nms_pre_max_size) == 0:
+    #         group_nms_pre_max_size = [test_cfg['nms']['nms_pre_max_size']] * len(
+    #             nms_groups)
+    #     if len(group_nms_post_max_size) == 0:
+    #         group_nms_post_max_size = [test_cfg['nms']['nms_post_max_size']] * len(
+    #             nms_groups)
+    #     if len(group_nms_iou_threshold) == 0:
+    #         group_nms_iou_threshold = [test_cfg['nms']['nms_iou_threshold']] * len(
+    #             nms_groups)
+    #     assert len(group_nms_pre_max_size) == len(nms_groups)
+    #     assert len(group_nms_post_max_size) == len(nms_groups)
+    #     assert len(group_nms_iou_threshold) == len(nms_groups)
+    #     nms_func = nms
+    #     # print('box3d_lidar', box3d_lidar.shape)
+    #     # boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, -1]), axis = 1) #box3d_lidar[:, ([0, 1, 3, 4, -1])]
+    #     # print('box3d_lidar', box3d_lidar.shape)
+    #     # boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor(np.array([0, 1, 3, 4, 6]).astype('int32')), axis = 1) #box3d_lidar[:, ([0, 1, 3, 4, -1])]
+    #     # print("@@shape: ", box3d_lidar.shape)
+    #     # print("@@box3d_lidar: ", box3d_lidar)
+    #     # boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, 6]), axis = 1)
+    #     boxes_for_nms = paddle.gather(box3d_lidar, paddle.to_tensor([0, 1, 3, 4, 6]), axis = 1)
+        
+    #     if not test_cfg['nms']['use_rotate_nms']:
+    #         box_preds_corners = center_to_corner_box2d(boxes_for_nms[:, :2], boxes_for_nms[:, 2:4], boxes_for_nms[:, (4)])
+    #         boxes_for_nms = corner_to_standup_nd(box_preds_corners)
+    #     for group_id, nms_group in enumerate(nms_groups):
+    #         selecteds = label_preds >= 0
+    #         if len(nms_group) == 0:
+    #             continue
+    #         mask = label_preds == nms_group[0]
+    #         for label_id in nms_group:
+    #             mask |= label_preds == label_id
+    #         indices = paddle.where(mask)[0].squeeze(axis = -1)
+    #         if indices.shape[0] != 0:
+    #             group_boxes_for_nms = boxes_for_nms.index_select(indices) 
+    #             group_scores = scores.index_select(indices) 
+    #             group_iou_scores = iou_scores.index_select(indices) if iou_scores is not None else None 
+    #             if group_iou_scores is not None:
+    #                 group_scores = group_scores * group_iou_scores
+    #             selected = nms_func(group_boxes_for_nms, group_scores,    # TODO
+    #                                 pre_max_size=group_nms_pre_max_size[group_id],
+    #                                 post_max_size=group_nms_post_max_size[group_id],
+    #                                 iou_threshold=group_nms_iou_threshold[group_id],
+    #                                 add_iou_edge=add_iou_edge)
+    #             selected_indices = indices[selected]
+    #             selecteds = paddle.scatter(selecteds.cast('int32'), 
+    #                                         indices, 
+    #                                         paddle.zeros(indices.shape, dtype='int32'), 
+    #                                         overwrite=True)
+    #             selecteds = paddle.scatter(selecteds, 
+    #                                         selected_indices, 
+    #                                         paddle.ones(selected_indices.shape, dtype='int32'), 
+    #                                         overwrite=True).cast('bool')
+    #             boxes_for_nms = boxes_for_nms[selecteds]
+    #             box3d_lidar = box3d_lidar[selecteds]
+    #             label_preds = label_preds[selecteds]
+    #             scores = scores[selecteds]
+    #             confidences = confidences[selecteds]
+    #             iou_scores = iou_scores[selecteds
+    #                 ] if iou_scores is not None else None
+    #     return box3d_lidar, scores, confidences, iou_scores, label_preds
+
+    # def nms_overlap_for_groups(self, test_cfg, nms_overlap_groups,
+    #     box3d_lidar, scores, iou_scores, confidences, label_preds):
+    #     group_nms_overlap_pre_max_size = test_cfg['nms'].get(
+    #         'group_nms_overlap_pre_max_size', [])
+    #     group_nms_overlap_post_max_size = test_cfg['nms'].get(
+    #         'group_nms_overlap_post_max_size', [])
+    #     group_nms_overlap_iou_threshold = test_cfg['nms'].get(
+    #         'group_nms_overlap_iou_threshold', [])
+    #     if len(group_nms_overlap_pre_max_size) == 0:
+    #         group_nms_overlap_pre_max_size = [test_cfg['nms']['nms_pre_max_size']] * len(nms_overlap_groups)
+    #     if len(group_nms_overlap_post_max_size) == 0:
+    #         group_nms_overlap_post_max_size = [test_cfg['nms']['nms_post_max_size']] * len(nms_overlap_groups)
+    #     if len(group_nms_overlap_iou_threshold) == 0:
+    #         group_nms_overlap_iou_threshold = [test_cfg['nms']['nms_iou_threshold']] * len(nms_overlap_groups)
+    #     assert len(group_nms_overlap_pre_max_size) == len(nms_overlap_groups)
+    #     assert len(group_nms_overlap_post_max_size) == len(nms_overlap_groups)
+    #     assert len(group_nms_overlap_iou_threshold) == len(nms_overlap_groups)
+    #     if not ('use_rotate_nms_overlap' in test_cfg['nms']) or not test_cfg['nms']['use_rotate_nms_overlap']:
+    #         nms_overlap_func = nms_overlap
+    #     else:
+    #         nms_overlap_func = rotate_nms_overlap
+    #         # raise NotImplementedError
+    #         # print("rotate_nms_overlap uses numba implementation!!")
+    #     # print("@@t1")
+    #     # print(box3d_lidar.shape)
+    #     # boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, -1]), axis = 1)
+    #     boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, 6]), axis = 1)
+    #     if not ('use_rotate_nms_overlap' in test_cfg['nms']) or not test_cfg['nms']['use_rotate_nms_overlap']:
+    #         box_preds_corners = center_to_corner_box2d(boxes_for_nms[:, :2], boxes_for_nms[:, 2:4], boxes_for_nms[:, 4])
+    #         boxes_for_nms = corner_to_standup_nd(box_preds_corners)
+        
+    #     # print("@@t2")
+    #     for group_id, nms_group in enumerate(nms_overlap_groups):
+    #         selecteds = label_preds >= 0
+    #         if len(nms_group) == 0:
+    #             continue
+    #         mask = label_preds == nms_group[0]
+    #         for label_id in nms_group:
+    #             mask |= label_preds == label_id
+    #         # indices = paddle.nonzero(x=mask, as_tuple=True)[0]
+    #         indices = paddle.where(mask)[0].squeeze(axis = -1) #paddle.nonzero(x=mask, as_tuple=True)[0]
+    #         # print("@@t3")
+    #         if indices.shape[0] != 0:
+    #             group_boxes_for_nms = boxes_for_nms.index_select(indices) #boxes_for_nms[indices]
+    #             group_scores = scores.index_select(indices) #scores[indices]
+    #             group_iou_scores = iou_scores.index_select(indices) if iou_scores is not None else None 
+    #             if group_iou_scores is not None:
+    #                 group_scores = group_scores * group_iou_scores
+    #             selected = nms_overlap_func(group_boxes_for_nms,
+    #                                         group_scores, 
+    #                                         pre_max_size=group_nms_overlap_pre_max_size[group_id], 
+    #                                         post_max_size=group_nms_overlap_post_max_size[group_id],
+    #                                         overlap_threshold=group_nms_overlap_iou_threshold[group_id])
+    #             selected_indices = indices[selected] # TODO1023
+    #             selecteds = paddle.scatter(selecteds.cast('int32'), 
+    #                                         indices, 
+    #                                         paddle.zeros(indices.shape, dtype='int32'), 
+    #                                         overwrite=True)
+    #             selecteds = paddle.scatter(selecteds, 
+    #                                         selected_indices, 
+    #                                         paddle.ones(selected_indices.shape, dtype='int32'), 
+    #                                         overwrite=True).cast('bool')
+    #             boxes_for_nms = boxes_for_nms[selecteds]
+    #             box3d_lidar = box3d_lidar[selecteds]
+    #             label_preds = label_preds[selecteds]
+    #             scores = scores[selecteds]
+    #             # confidences = confidences[selecteds] #TODO
+    #             iou_scores = iou_scores[selecteds] if iou_scores is not None else None
+    #     # print("@@t4")
+    #     return box3d_lidar, scores, confidences, iou_scores, label_preds
+
+
+
     def nms_for_groups(self, test_cfg, nms_groups, box3d_lidar, scores,
-        iou_scores, confidences, label_preds):
+        iou_scores, label_preds):
         # print("pr1: ", box3d_lidar)
         group_nms_pre_max_size = test_cfg['nms'].get('group_nms_pre_max_size', [])
         group_nms_post_max_size = test_cfg['nms'].get('group_nms_post_max_size',
@@ -1042,13 +1186,13 @@ class ConfidenceHead(paddle.nn.Layer):
                 box3d_lidar = box3d_lidar[selecteds]
                 label_preds = label_preds[selecteds]
                 scores = scores[selecteds]
-                confidences = confidences[selecteds]
+
                 iou_scores = iou_scores[selecteds
                     ] if iou_scores is not None else None
-        return box3d_lidar, scores, confidences, iou_scores, label_preds
+        return box3d_lidar, scores, iou_scores, label_preds
 
     def nms_overlap_for_groups(self, test_cfg, nms_overlap_groups,
-        box3d_lidar, scores, iou_scores, confidences, label_preds):
+        box3d_lidar, scores, iou_scores, label_preds):
         group_nms_overlap_pre_max_size = test_cfg['nms'].get(
             'group_nms_overlap_pre_max_size', [])
         group_nms_overlap_post_max_size = test_cfg['nms'].get(
@@ -1068,11 +1212,7 @@ class ConfidenceHead(paddle.nn.Layer):
             nms_overlap_func = nms_overlap
         else:
             nms_overlap_func = rotate_nms_overlap
-            # raise NotImplementedError
-            # print("rotate_nms_overlap uses numba implementation!!")
-        # print("@@t1")
-        # print(box3d_lidar.shape)
-        # boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, -1]), axis = 1)
+
         boxes_for_nms = box3d_lidar.index_select(paddle.to_tensor([0, 1, 3, 4, 6]), axis = 1)
         if not ('use_rotate_nms_overlap' in test_cfg['nms']) or not test_cfg['nms']['use_rotate_nms_overlap']:
             box_preds_corners = center_to_corner_box2d(boxes_for_nms[:, :2], boxes_for_nms[:, 2:4], boxes_for_nms[:, 4])
@@ -1113,7 +1253,7 @@ class ConfidenceHead(paddle.nn.Layer):
                 box3d_lidar = box3d_lidar[selecteds]
                 label_preds = label_preds[selecteds]
                 scores = scores[selecteds]
-                confidences = confidences[selecteds]
+
                 iou_scores = iou_scores[selecteds] if iou_scores is not None else None
         # print("@@t4")
-        return box3d_lidar, scores, confidences, iou_scores, label_preds
+        return box3d_lidar, scores, iou_scores, label_preds

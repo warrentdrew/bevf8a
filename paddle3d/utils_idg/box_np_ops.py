@@ -18,108 +18,7 @@ limitations under the License.
 
 import numpy as np
 import numba
-# from mmdet3d.core.bbox.geometry import points_count_convex_polygon_3d_jit
 
-
-@numba.njit
-def _points_count_convex_polygon_3d_jit(
-    points, polygon_surfaces, normal_vec, d, num_surfaces=None
-):
-    """count points in 3d convex polygons.
-    Args:
-        points: [num_points, 3] array.
-        polygon_surfaces: [num_polygon, max_num_surfaces,
-            max_num_points_of_surface, 3]
-            array. all surfaces' normal vector must direct to internal.
-            max_num_points_of_surface must at least 3.
-        num_surfaces: [num_polygon] array. indicate how many surfaces
-            a polygon contain
-    Returns:
-        [num_polygon] array.
-    """
-    max_num_surfaces, max_num_points_of_surface = polygon_surfaces.shape[1:3]
-    num_points = points.shape[0]
-    num_polygons = polygon_surfaces.shape[0]
-    ret = np.full((num_polygons,), num_points, dtype=np.int64)
-    sign = 0.0
-    for i in range(num_points):
-        for j in range(num_polygons):
-            for k in range(max_num_surfaces):
-                if k > num_surfaces[j]:
-                    break
-                sign = (
-                    points[i, 0] * normal_vec[j, k, 0]
-                    + points[i, 1] * normal_vec[j, k, 1]
-                    + points[i, 2] * normal_vec[j, k, 2]
-                    + d[j, k]
-                )
-                if sign >= 0:
-                    ret[j] -= 1
-                    break
-    return ret
-
-
-def points_count_convex_polygon_3d_jit(points, polygon_surfaces, num_surfaces=None):
-    """check points is in 3d convex polygons.
-    Args:
-        points: [num_points, 3] array.
-        polygon_surfaces: [num_polygon, max_num_surfaces,
-            max_num_points_of_surface, 3]
-            array. all surfaces' normal vector must direct to internal.
-            max_num_points_of_surface must at least 3.
-        num_surfaces: [num_polygon] array. indicate how many surfaces
-            a polygon contain
-    Returns:
-        [num_polygon] array.
-    """
-    max_num_surfaces, max_num_points_of_surface = polygon_surfaces.shape[1:3]
-    num_points = points.shape[0]
-    num_polygons = polygon_surfaces.shape[0]
-    if num_surfaces is None:
-        num_surfaces = np.full((num_polygons,), 9999999, dtype=np.int64)
-    normal_vec, d = surface_equ_3d_jitv2(polygon_surfaces[:, :, :3, :])
-    # normal_vec: [num_polygon, max_num_surfaces, 3]
-    # d: [num_polygon, max_num_surfaces]
-    return _points_count_convex_polygon_3d_jit(
-        points, polygon_surfaces, normal_vec, d, num_surfaces
-    )
-
-
-def corner_to_surfaces_3d(corners):
-    """convert 3d box corners from corner function above
-    to surfaces that normal vectors all direct to internal.
-
-    Args:
-        corners (float array, [N, 8, 3]): 3d box corners.
-    Returns:
-        surfaces (float array, [N, 6, 4, 3]):
-    """
-    # box_corners: [N, 8, 3], must from corner functions in this module
-    surfaces = np.array(
-        [
-            [corners[:, 0], corners[:, 1], corners[:, 2], corners[:, 3]],
-            [corners[:, 7], corners[:, 6], corners[:, 5], corners[:, 4]],
-            [corners[:, 0], corners[:, 3], corners[:, 7], corners[:, 4]],
-            [corners[:, 1], corners[:, 5], corners[:, 6], corners[:, 2]],
-            [corners[:, 0], corners[:, 4], corners[:, 5], corners[:, 1]],
-            [corners[:, 3], corners[:, 2], corners[:, 6], corners[:, 7]],
-        ]
-    ).transpose([2, 0, 1, 3])
-    return surfaces
-
-def points_count_rbbox(points, rbbox, z_axis=2, origin=(0.5, 0.5, 0.5)):
-    rbbox_corners = center_to_corner_box3d(
-        rbbox[:, :3], rbbox[:, 3:6], rbbox[:, -1], origin=origin, axis=z_axis
-    )
-    surfaces = corner_to_surfaces_3d(rbbox_corners)
-    return points_count_convex_polygon_3d_jit(points[:, :3], surfaces)
-
-def corner_to_standup_nd(boxes_corner):
-    assert len(boxes_corner.shape) == 3
-    standup_boxes = []
-    standup_boxes.append(np.min(boxes_corner, axis=1))
-    standup_boxes.append(np.max(boxes_corner, axis=1))
-    return np.concatenate(standup_boxes, -1)
 
 def rotate_points(points, angle, axis=0):
     """Rotate 3D points by a angle."""
@@ -323,7 +222,7 @@ def corner_to_standup_nd(boxes_corner):
 
 
 @numba.jit(nopython=True)
-def iou_jit(boxes, query_boxes, eps=1.0):
+def iou_jit(boxes, query_boxes, mode='iou', eps=0.0):
     """calculate box iou. note that jit version runs 2x faster than cython in
     my machine!
     Parameters
@@ -347,9 +246,13 @@ def iou_jit(boxes, query_boxes, eps=1.0):
                 ih = (min(boxes[n, 3], query_boxes[k, 3]) - max(
                     boxes[n, 1], query_boxes[k, 1]) + eps)
                 if ih > 0:
-                    ua = (
-                        (boxes[n, 2] - boxes[n, 0] + eps) *
-                        (boxes[n, 3] - boxes[n, 1] + eps) + box_area - iw * ih)
+                    if mode == 'iou':
+                        ua = (
+                            (boxes[n, 2] - boxes[n, 0] + eps) *
+                            (boxes[n, 3] - boxes[n, 1] + eps) + box_area - iw * ih)
+                    else:
+                        ua = ((boxes[n, 2] - boxes[n, 0] + eps) *
+                              (boxes[n, 3] - boxes[n, 1] + eps))
                     overlaps[n, k] = iw * ih / ua
     return overlaps
 

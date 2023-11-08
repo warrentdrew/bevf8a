@@ -26,14 +26,15 @@ from visualdl import LogWriter
 
 import paddle3d.env as env
 from paddle3d.apis.checkpoint import Checkpoint, CheckpointABC
-from paddle3d.apis.pipeline import training_step, validation_step
+from paddle3d.apis.pipeline import (training_step, validation_step, 
+                            single_gpu_test, multi_gpu_test, collect_results_cpu)
 from paddle3d.apis.scheduler import Scheduler, SchedulerABC
+from paddle3d.apis.sampler import DistributedTestBatchSampler
 from paddle3d.utils.logger import Logger, logger
 from paddle3d.utils.shm_utils import _get_shared_memory_size_in_M
 from paddle3d.utils.timer import Timer
 from paddle3d.utils.profiler import add_profiler_step
-import pickle
-import time
+from paddle3d.datasets.at128.core import dump
 
 def default_dataloader_build_fn(**kwargs) -> paddle.io.DataLoader:
     """
@@ -43,8 +44,7 @@ def default_dataloader_build_fn(**kwargs) -> paddle.io.DataLoader:
     def _generate_loader(dataset: paddle.io.Dataset, model: paddle.nn.Layer):
         args = kwargs.copy()
         batch_size = args.pop('batch_size', 1)
-        shuffle = False # if not dataset.is_train_mode else True
-        # print("@shuffle: ", shuffle)
+        shuffle = False if not dataset.is_train_mode else True
         drop_last = args.pop('drop_last',
                              False if not dataset.is_train_mode else True)
 
@@ -52,7 +52,11 @@ def default_dataloader_build_fn(**kwargs) -> paddle.io.DataLoader:
             BatchSampler = paddle.io.DistributedBatchSampler
         else:
             # Do eval in single device
-            BatchSampler = paddle.io.BatchSampler
+            if env.nranks < 2:
+                BatchSampler = paddle.io.BatchSampler
+            # Do eval in multiple devices
+            else:
+                BatchSampler = DistributedTestBatchSampler
 
         batch_sampler = BatchSampler(
             dataset,
@@ -133,7 +137,9 @@ class Trainer:
             profiler_options: Optional[dict] = None,
             dataloader_fn: Union[dict, Callable] = dict(),
             amp_cfg: Optional[dict] = None,
-            do_bind: Optional[bool] = False):
+            do_bind: Optional[bool] = False,
+            revert_syncbn_status: Optional[bool] = False,
+            find_unused_parameters: Optional[bool] = False):
 
         self.model = model
         self.optimizer = optimizer
@@ -154,6 +160,8 @@ class Trainer:
         self.iters_per_epoch = len(self.train_dataloader)
 
         self.do_bind = do_bind
+        self.revert_syncbn_status = revert_syncbn_status
+        self.find_unused_parameters = find_unused_parameters
 
         if iters is None:
             self.epochs = epochs
@@ -283,22 +291,20 @@ class Trainer:
                     self.model)
 
         model = self.model
+        ori_model = copy.deepcopy(model)
         group = None
         if env.nranks > 1:
             if not paddle.distributed.parallel.parallel_helper._is_parallel_ctx_initialized(
             ):
                 group = paddle.distributed.init_parallel_env()
-            # model = paddle.DataParallel(self.model, find_unused_parameters=False)
-            model = paddle.DataParallel(self.model, find_unused_parameters=False)
+            model = paddle.DataParallel(self.model, find_unused_parameters= True) # self.find_unused_parameters)
 
         losses_sum = defaultdict(float)
         timer = Timer(iters=self.iters - self.cur_iter)
 
         while self.cur_iter < self.iters:
 
-            for i, sample in enumerate(self.train_dataloader):
-                if i == 0:    #TODO
-                    continue
+            for sample in self.train_dataloader:
                 if self.cur_iter == 1 and self.do_bind and int(
                         os.environ.get('FLAGS_selected_gpus', 0)) == 0:
                     test_cmd = "j=0 | j=$(( $j + 1 ))"
@@ -322,40 +328,18 @@ class Trainer:
                               "i=$(( $i + 1 )) \n" \
                               "done \n"
                         os.system(cmd)
-
-                # ===================================
-                # self.checkpoint.push(
-                #         tag=f"hangerror2_{env.local_rank}",
-                #         params_dict=self.model.state_dict(),
-                #         opt_dict=self.optimizer.state_dict(),
-                #         verbose=True)
-                # paddle.save(sample, f"hangerror2_{env.local_rank}.pdt")
-                # paddle.save(sample, "sample_adapt2dev.pdt")
-                # paddle.save(sample, "sample_tomatch.pdt")
-                # sample = paddle.load("sample_tomatch.pdt")
-                # ===================================
-
-                # ===================================
-                # load sample
-                # params_dict, opt_dict = self.checkpoint.get()
-                # sample = paddle.load(f'hangerror2_{env.local_rank}.pdt')
-                # sample = paddle.load(f'errordata/hangerror_2.pdt')
-                # params_dict = paddle.load(f'errordata/hangerror_2/model.pdparams')
-                # # # # # # load weights
-                # params_dict = paddle.load(f'out_bevf_lidarrcnn_stage1_t3/hangerror2_{env.local_rank}/model.pdparams')
-                # opt_dict = paddle.load(f'out_bevf_lidarrcnn_stage1_t3/hangerror2_{env.local_rank}/model.pdopt')
-                # self.model.set_dict(params_dict)
-                # self.optimizer.set_state_dict(opt_dict)
-                # time.sleep(0.1)
-                # self.cur_iter = self.checkpoint.meta.get('iters')
-                # self.cur_epoch = self.checkpoint.meta.get('epochs')
-                # self.scheduler.step(self.cur_iter)
-                # ===================================
                 self.cur_iter += 1
-                # print("cur_iter: ", self.cur_iter)
 
                 if self.cur_iter % self.iters_per_epoch == 1:
                     self.cur_epoch += 1
+                    if isinstance(model, paddle.DataParallel):
+                        if hasattr(model._layers.pts_roi_head, "epoch"):
+                            model._layers.pts_roi_head.epoch += 1
+                            print("pts_roi_head.epoch {}".format(model._layers.pts_roi_head.epoch))
+                    else:
+                        if hasattr(model.pts_roi_head, "epoch"):
+                            model.pts_roi_head.epoch += 1
+                            print("pts_roi_head.epoch {}".format(model.pts_roi_head.epoch))
 
                 if self.cur_iter > self.iters:
                     break
@@ -369,11 +353,13 @@ class Trainer:
                     self.optimizer,
                     sample,
                     self.cur_iter,
+                    ori_model=ori_model,
                     scaler=self.scaler,
                     amp_cfg=self.amp_cfg,
                     all_fused_tensors=getattr(self.optimizer,
                                               'all_fused_tensors', None),
-                    group=group)
+                    group=group,
+                    revert_syncbn_status=self.revert_syncbn_status)
 
                 for loss_name, loss_value in output.items():
                     losses_sum[loss_name] += float(loss_value)
@@ -449,7 +435,7 @@ class Trainer:
             self.checkpoint.record('iters', self.iters)
             self.checkpoint.record('epochs', self.epochs)
 
-    def evaluate(self) -> float:
+    def evaluate(self, out=None) -> float:
         """
         as name
         """
@@ -471,24 +457,38 @@ class Trainer:
             raise RuntimeError('No evaluation dataset specified!')
         msg = 'evaluate on validate dataset'
 
-        results = []
-        for idx, sample in self.logger.enumerate(self.eval_dataloader, msg=msg):
-            # print(sample)
-            # exit()
-            sample_idx = int(sample.pop('sample_idx')[0])
-            filename = self.val_dataset.data_infos[sample_idx]['cams'][self.val_dataset.cam_orders[0]]['data_path']
-            result = validation_step(self.model, sample)
-            assert len(result) == 1
-            result[0]['sample_idx'] = sample_idx
-            result[0]['filename'] = filename
-            results.extend(result)
+        if env.nranks > 1:
+            if not paddle.distributed.is_initialized():
+                group = paddle.distributed.init_parallel_env()
+            if not isinstance(self.model, paddle.DataParallel):
+                self.model = paddle.DataParallel(self.model)
+        if env.nranks < 2:
+            results = single_gpu_test(self.model, self.eval_dataloader)
+            all_results = results
+        else:
+            import tempfile
 
-        # save results to pkl
-        #result_path = 'test_result.pkl'
-        #with open(result_path, 'wb') as f:
-            #pickle.dump(results, f)
-            #paddle.save()
-        
-        paddle.save(results, "test_results_exp4_1030.pdt")
-        metrics = self.val_dataset.evaluate(results, metric='bbox', jsonfile_prefix='eval_output')
-        return metrics
+            tmpdir = tempfile.NamedTemporaryFile().name
+            tmpdir_list = []
+            paddle.distributed.all_gather_object(
+                tmpdir_list, tmpdir
+            )  # gather all process dir
+            results = multi_gpu_test(
+                self.model,
+                self.eval_dataloader,
+                tmpdir="./dist_test",
+            )
+            if out is not None:
+                all_results = collect_results_cpu(
+                    results,
+                    len(self.eval_dataloader.dataset),
+                    "./dist_test",
+                )
+        if env.local_rank == 0 and out is not None:
+            logger.info("Saving eval results at {}...".format(out))
+            if out is not None:
+                dump(all_results, out)
+                return
+            else:
+                metrics = self.val_dataset.evaluate(all_results, metric='bbox', jsonfile_prefix='eval_output')
+                return metrics

@@ -1,0 +1,40 @@
+{
+    "define_macros": [],
+    "dynamic_point_to_voxel.so": "b05c5c2f0128084318033457448871c0",
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/include/python3.9"
+    ],
+    "library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "runtime_library_dirs": [
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/root/paddlejob/workspace/env_run/bevfusion/miniconda3/lib/python3.9/site-packages/paddle/base"
+    ],
+    "sources": [
+        "dynamic_scatter/scatter_point_api.cc",
+        "dynamic_scatter/scatter_point_cuda.cu"
+    ],
+    "undef_macros": []
+}

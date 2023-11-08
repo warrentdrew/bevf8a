@@ -19,6 +19,23 @@ import numba
 from numba import cuda 
 import numpy as np
 import math
+# from paddle3d.ops import nms_rotated_cc
+from paddle3d.utils_idg.box_np_ops import center_to_corner_box2d, corner_to_standup_nd, iou_jit
+from rotate_nms_cpu import rotate_non_max_suppression_cpu
+
+
+def rotate_nms_cpu_fun(dets, thresh):
+    scores = dets[:, 5]
+    order = scores.argsort()[::-1].astype(np.int32)  # highest->lowest
+    dets_corners = center_to_corner_box2d(
+        dets[:, :2], dets[:, 2:4], dets[:, 4]
+    )
+
+    dets_standup = corner_to_standup_nd(dets_corners)
+
+    standup_iou = iou_jit(dets_standup, dets_standup, eps=0.0)
+    return rotate_non_max_suppression_cpu(dets_corners, order, standup_iou, thresh)
+
 
 @cuda.jit("(float32[:], float32[:], float32)", device=True, inline=True)
 def iou_device(a, b, add_iou_edge):
@@ -243,6 +260,34 @@ def nms_overlap_gpu(dets, overlap_thresh, device_id=0):
     num_out = nms_postprocess(keep_out, mask_host, boxes_num)
     keep = keep_out[:num_out]
     return list(order[keep])
+
+def rotate_nms(
+    rbboxes, scores, pre_max_size=None, post_max_size=None, iou_threshold=0.5, add_iou_edge=1
+):
+    if pre_max_size is not None:
+        num_keeped_scores = scores.shape[0]
+        pre_max_size = min(num_keeped_scores, pre_max_size)
+        scores, indices = paddle.topk(scores, k=pre_max_size)
+        rbboxes = rbboxes.index_select(indices, axis=0)
+    dets = paddle.concat([rbboxes, scores.unsqueeze(-1)], axis=1)
+    dets_np = dets.numpy()
+    if len(dets_np) == 0:
+        keep = np.array([], dtype=np.int64)
+    else:
+        # rbboxes_cpu = paddle.to_tensor(dets_np[:, :-1], place=paddle.CPUPlace())
+        # scores_cpu = paddle.to_tensor(dets_np[:, -1], place=paddle.CPUPlace())
+        # ret = nms_rotated_cc.nms_rotated(rbboxes_cpu, scores_cpu, threshold=iou_threshold)
+        # keep = ret[:post_max_size]
+        # keep = keep.cast('int64').numpy()
+        ret = rotate_nms_cpu_fun(dets_np, iou_threshold)
+        keep = ret[:post_max_size]
+    if len(keep) == 0:
+        return paddle.zeros([0]).cast('int64')
+    if pre_max_size is not None:
+        keep = paddle.to_tensor(keep).cast('int64')
+        return indices[keep]
+    else:
+        return paddle.to_tensor(keep).cast('int64')
 
 
 def nms_overlap(bboxes, scores, pre_max_size=None, post_max_size=None, overlap_threshold=0.5):

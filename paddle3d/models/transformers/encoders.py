@@ -173,11 +173,8 @@ class BEVFormerEncoder(nn.Layer):
             reference_points_cam[..., 2:3],
             paddle.ones_like(reference_points_cam[..., 2:3]) * eps)
 
-        # reference_points_cam[..., 0] /= img_metas[0]['img_shape'][0][1]
-        # reference_points_cam[..., 1] /= img_metas[0]['img_shape'][0][0]
         # reference_points_cam[..., 0] /= img_metas[0]['pad_shape'][1] # 736
         # reference_points_cam[..., 1] /= img_metas[0]['pad_shape'][0] # 480
-        # add 8A
         reference_points_cam[..., 0] /= img_metas[0]['img_shape'][0][1] # 1152
         reference_points_cam[..., 1] /= img_metas[0]['img_shape'][0][0] # 768
 

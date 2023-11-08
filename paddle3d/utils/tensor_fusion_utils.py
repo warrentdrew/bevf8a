@@ -19,9 +19,8 @@ from collections import OrderedDict
 
 import numpy as np
 import paddle
-# from paddle.base.framework import EagerParamBase
 from paddle.fluid.framework import EagerParamBase
-
+# from paddle.base.framework import EagerParamBase
 from paddle.framework import core
 from paddle import _legacy_C_ops
 

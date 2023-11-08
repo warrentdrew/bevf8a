@@ -1,0 +1,42 @@
+{
+    "define_macros": [],
+    "extra_compile_args": {
+        "cxx": [
+            "-DPADDLE_WITH_CUDA",
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ],
+        "nvcc": [
+            "-w",
+            "-DPADDLE_WITH_CUSTOM_KERNEL"
+        ]
+    },
+    "extra_link_args": [
+        "-l:libpaddle.so",
+        "-lcudart"
+    ],
+    "include_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/include/third_party",
+        "/usr/local/cuda/include",
+        "/opt/conda/envs/bevf8a_t2/include/python3.8"
+    ],
+    "iou3d_nms_cuda.so": "89993a488b18d568f71cf7b95bb2fc52",
+    "library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "runtime_library_dirs": [
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/libs",
+        "/usr/local/cuda/lib64",
+        "/opt/conda/envs/bevf8a_t2/lib/python3.8/site-packages/paddle/fluid"
+    ],
+    "sources": [
+        "iou3d_nms/iou3d_cpu.cpp",
+        "iou3d_nms/iou3d_nms_api.cpp",
+        "iou3d_nms/iou3d_nms.cpp",
+        "iou3d_nms/iou3d_nms_kernel.cu"
+    ],
+    "undef_macros": []
+}
